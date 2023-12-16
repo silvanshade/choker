@@ -1,0 +1,48 @@
+[package]
+name = "chonker"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bench]]
+name = "benchmark"
+harness = false
+
+[features]
+debug = []
+default = ["debug"]
+
+[dependencies]
+async-stream = "0.3.5"
+dashmap = "5.5"
+fastcdc = { version = "3.1", features = ["tokio"] }
+futures = { version = "0.3", features = ["executor"] }
+indicatif = { version = "0.17", features = ["improved_unicode"] }
+rayon = "1.8"
+redb = "1.4"
+rkyv = { version = "0.7", features = ["alloc", "arbitrary_enum_discriminant", "archive_le", "smol_str", "strict", "tinyvec", "uuid", "validation"] }
+smol_str = "0.2"
+thread_local = "1.1"
+tinyvec = "1.6"
+tokio = { workspace = true, features = ["fs", "io-util"] }
+tokio-stream = "0.1"
+uuid = "1.6"
+zstd = { version = "0.13", features = ["experimental", "thin-lto", "zstdmt"] }
+
+[dependencies.blake3]
+version = "1.5"
+features = ["rayon"]
+
+# NOTE: Although the documentation states that NEON support does not participate in the dynamic
+# auto-detection scheme, the BLAKE3 build.rs script does in fact appear to detect NEON support on
+# the target platform and, if found, enables NEON support regardless of whether or not the "neon"
+# feature was specified (however, "no_neon" does override this).
+[target.'cfg(target_arch = "aarch64")'.dependencies.blake3]
+version = "1.5"
+features = ["neon", "no_sse2", "no_sse41", "no_avx2", "no_avx512"]
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
