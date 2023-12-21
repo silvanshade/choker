@@ -5,7 +5,7 @@ use thread_local::ThreadLocal;
 use tokio::io::AsyncWriteExt;
 
 use crate::{
-    archive::{chunk::ArchiveChunk, meta::ArchiveMeta},
+    archive::{chunk::ArchiveChunk, meta::ChonkerArchiveMeta},
     cdc::AsyncStreamChunker,
 };
 
@@ -186,12 +186,12 @@ where
     }
 }
 
-pub(crate) async fn emit_chunks<R, W>(
+pub(crate) async fn encode_chunks<R, W>(
     context: Arc<EncodeContext>,
     reader: R,
     reader_size: Option<u64>,
     writer: &mut W,
-) -> crate::BoxResult<ArchiveMeta>
+) -> crate::BoxResult<ChonkerArchiveMeta>
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin,
@@ -276,10 +276,10 @@ where
         pb.finish();
     }
 
-    Ok(ArchiveMeta {
+    Ok(ChonkerArchiveMeta {
         source_checksum: source_checksum.await??.into(),
         source_size,
         source_chunks,
-        ..ArchiveMeta::default()
+        ..ChonkerArchiveMeta::default()
     })
 }

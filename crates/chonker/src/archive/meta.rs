@@ -1,13 +1,17 @@
 use rkyv::bytecheck;
 use smol_str::SmolStr;
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 
-use crate::{archive::chunk::ArchiveChunk, codec::encode::EncodeContext, io::AsZstdWriteBuf};
+use crate::{
+    archive::chunk::ArchiveChunk,
+    codec::{decode::DecodeContext, encode::EncodeContext},
+    io::AsZstdWriteBuf,
+};
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[derive(rkyv::Archive, rkyv::Serialize)]
 #[archive_attr(derive(Debug, rkyv::CheckBytes))]
-pub(crate) struct ArchiveMeta {
+pub struct ChonkerArchiveMeta {
     pub(crate) application_version: SmolStr,
     pub(crate) source_size: u64,
     pub(crate) source_checksum: [u8; 32],
@@ -15,7 +19,7 @@ pub(crate) struct ArchiveMeta {
     pub(crate) source_chunks: Vec<ArchiveChunk>,
 }
 
-impl Default for ArchiveMeta {
+impl Default for ChonkerArchiveMeta {
     fn default() -> Self {
         Self {
             application_version: env!("CARGO_PKG_VERSION").into(),
@@ -27,8 +31,49 @@ impl Default for ArchiveMeta {
     }
 }
 
-impl ArchiveMeta {
-    pub(crate) async fn write<W>(&self, context: &EncodeContext, writer: &mut W) -> crate::BoxResult<()>
+impl ChonkerArchiveMeta {
+    pub(crate) async fn read<'ctx, R>(
+        context: &'ctx mut DecodeContext,
+        reader: &mut R,
+        reader_size: u64,
+    ) -> crate::BoxResult<(u64, &'ctx rkyv::Archived<ChonkerArchiveMeta>)>
+    where
+        R: AsyncRead + AsyncSeek + Unpin,
+    {
+        reader.seek(std::io::SeekFrom::End(-40)).await?;
+        let meta_size = reader.read_u64_le().await?;
+        let meta_len = usize::try_from(meta_size)?;
+        let meta_off = i64::try_from(meta_size)?;
+
+        reader.seek(std::io::SeekFrom::End(-32)).await?;
+        let expected_checksum = &mut [0u8; 32];
+        reader.read_exact(expected_checksum).await?;
+
+        reader.seek(std::io::SeekFrom::End(-40 - meta_off)).await?;
+
+        context
+            .meta_frame
+            .reserve_exact(meta_len + 8 - context.meta_frame.len());
+        let mut meta_frame_reader = tokio_util::io::SyncIoBridge::new(reader.take(meta_size + 8));
+        let meta_frame_len = tokio::task::block_in_place(|| -> crate::BoxResult<usize> {
+            context
+                .meta_frame
+                .extend_from_reader(&mut meta_frame_reader)
+                .map_err(Into::into)
+        })?;
+        debug_assert_eq!(meta_frame_len, meta_len + 8);
+
+        let actual_checksum = blake3::hash(context.meta_frame.as_slice());
+        assert_eq!(actual_checksum.as_bytes(), expected_checksum);
+
+        let meta =
+            rkyv::check_archived_root::<ChonkerArchiveMeta>(&context.meta_frame[.. context.meta_frame.len() - 8])
+                .map_err(|err| err.to_string())?;
+
+        Ok((meta_size, meta))
+    }
+
+    pub(crate) async fn write<W>(&self, context: &EncodeContext, mut writer: W) -> crate::BoxResult<()>
     where
         W: AsyncWrite + Unpin,
     {

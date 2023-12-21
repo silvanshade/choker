@@ -1,6 +1,7 @@
 #![deny(clippy::all)]
 #![deny(clippy::pedantic)]
 #![allow(clippy::missing_errors_doc)]
+#![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::similar_names)]
 
@@ -11,7 +12,7 @@ mod crypto;
 mod database;
 pub mod io;
 
-pub use archive::Archive;
+pub use archive::ChonkerArchive;
 pub use codec::encode::EncodeContext;
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
