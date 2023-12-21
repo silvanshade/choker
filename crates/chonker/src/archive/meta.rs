@@ -15,7 +15,6 @@ pub struct ChonkerArchiveMeta {
     pub(crate) application_version: SmolStr,
     pub(crate) source_size: u64,
     pub(crate) source_checksum: [u8; 32],
-    pub(crate) source_orders: Vec<u64>,
     pub(crate) source_chunks: Vec<ArchiveChunk>,
 }
 
@@ -25,18 +24,17 @@ impl Default for ChonkerArchiveMeta {
             application_version: env!("CARGO_PKG_VERSION").into(),
             source_checksum: [0; 32],
             source_size: 0,
-            source_orders: Vec::default(),
             source_chunks: Vec::default(),
         }
     }
 }
 
 impl ChonkerArchiveMeta {
-    pub(crate) async fn read<'ctx, R>(
-        context: &'ctx mut DecodeContext,
+    pub(crate) async fn read<'meta, R>(
+        context: &mut DecodeContext,
+        meta_frame: &'meta mut rkyv::AlignedVec,
         reader: &mut R,
-        reader_size: u64,
-    ) -> crate::BoxResult<(u64, &'ctx rkyv::Archived<ChonkerArchiveMeta>)>
+    ) -> crate::BoxResult<(u64, &'meta rkyv::Archived<ChonkerArchiveMeta>)>
     where
         R: AsyncRead + AsyncSeek + Unpin,
     {
@@ -51,24 +49,22 @@ impl ChonkerArchiveMeta {
 
         reader.seek(std::io::SeekFrom::End(-40 - meta_off)).await?;
 
-        context
-            .meta_frame
-            .reserve_exact(meta_len + 8 - context.meta_frame.len());
+        meta_frame.reserve_exact(meta_len + 8 - meta_frame.len());
         let mut meta_frame_reader = tokio_util::io::SyncIoBridge::new(reader.take(meta_size + 8));
-        let meta_frame_len = tokio::task::block_in_place(|| -> crate::BoxResult<usize> {
-            context
-                .meta_frame
-                .extend_from_reader(&mut meta_frame_reader)
-                .map_err(Into::into)
-        })?;
+        let meta_frame_len =
+            tokio::task::block_in_place(|| -> crate::BoxResult<usize> {
+                meta_frame
+                    .extend_from_reader(&mut meta_frame_reader)
+                    .map_err(Into::into)
+            })?;
         debug_assert_eq!(meta_frame_len, meta_len + 8);
 
-        let actual_checksum = blake3::hash(context.meta_frame.as_slice());
+        let actual_checksum = blake3::hash(meta_frame.as_slice());
         assert_eq!(actual_checksum.as_bytes(), expected_checksum);
 
-        let meta =
-            rkyv::check_archived_root::<ChonkerArchiveMeta>(&context.meta_frame[.. context.meta_frame.len() - 8])
-                .map_err(|err| err.to_string())?;
+        // FIXME: decompress first
+        let meta = rkyv::check_archived_root::<ChonkerArchiveMeta>(&meta_frame[.. meta_frame.len() - 8])
+            .map_err(|err| err.to_string())?;
 
         Ok((meta_size, meta))
     }

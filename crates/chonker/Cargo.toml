@@ -20,6 +20,7 @@ dashmap = "5.5"
 fastcdc = { version = "3.1", features = ["tokio"] }
 futures = { version = "0.3", features = ["executor"] }
 indicatif = { version = "0.17", features = ["improved_unicode"] }
+positioned-io = "0.3"
 rayon = "1.8"
 redb = "1.4"
 rkyv = { version = "0.7", features = ["alloc", "arbitrary_enum_discriminant", "archive_le", "smol_str", "strict", "tinyvec", "uuid", "validation"] }
@@ -44,6 +45,10 @@ features = ["rayon"]
 [target.'cfg(target_arch = "aarch64")'.dependencies.blake3]
 version = "1.5"
 features = ["neon", "no_sse2", "no_sse41", "no_avx2", "no_avx512"]
+
+# [target.'cfg(target_os = "linux")'.dependencies.io-uring]
+# version = "0.6"
+# optional = true
 
 [target.'cfg(target_family = "unix")'.dependencies.libc]
 version = "0.2"

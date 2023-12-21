@@ -48,54 +48,23 @@ impl ChonkerArchive {
         Ok(meta)
     }
 
-    pub async fn decode<'ctx, R, W>(
-        context: &'ctx mut DecodeContext,
+    #[allow(clippy::unused_async)]
+    pub async fn decode<R, W>(
+        context: Arc<DecodeContext>,
         reader: &mut R,
         reader_size: u64,
         writer: &mut W,
-    ) -> crate::BoxResult<&'ctx rkyv::Archived<ChonkerArchiveMeta>>
+    ) -> crate::BoxResult<&'static rkyv::Archived<ChonkerArchiveMeta>>
     where
         R: AsyncRead + AsyncSeek + Unpin,
         W: AsyncWrite + Unpin,
     {
-        let header = ChonkerArchiveHeader::read(context, reader).await?;
-        let (meta_size, meta) = ChonkerArchiveMeta::read(context, reader, reader_size).await?;
-        reader.seek(std::io::SeekFrom::Start(32)).await?;
-        let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
-        Ok(meta)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::io::Read;
-
-    #[test]
-    fn test() {
-        use std::collections::HashSet;
-
-        let mut set = HashSet::new();
-        set.insert(1);
-
-        let bytes = rkyv::to_bytes::<HashSet<u64>, 256>(&set).unwrap();
-        dbg!(&bytes);
-
-        let crashing_bytes: [u8; 28] = [
-            0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 236, 255, 255, 255, 240, 255, 255, 255,
-        ];
-
-        assert_eq!(&bytes[..], &crashing_bytes[..]);
-
-        // let crashing_bytes = crashing_bytes.to_vec();
-        let mut crashing_vec = rkyv::AlignedVec::with_capacity(crashing_bytes.len());
-        // unsafe {
-        //     std::ptr::copy_nonoverlapping(crashing_bytes.as_ptr(), crashing_vec.as_mut_ptr(), crashing_bytes.len());
-        //     crashing_vec.set_len(crashing_bytes.len());
-        // }
-        let mut reader = std::io::Cursor::new(&crashing_bytes);
-        unsafe { crashing_vec.set_len(crashing_bytes.len()) };
-        reader.read_exact(crashing_vec.as_mut_slice()).unwrap();
-        let archived = unsafe { rkyv::archived_root::<HashSet<u64>>(&crashing_vec) };
-        assert_eq!(*archived.iter().next().unwrap(), 1);
+        // let header = ChonkerArchiveHeader::read(&context, reader).await?;
+        // let (meta_size, meta) = ChonkerArchiveMeta::read(context.clone(), reader).await?;
+        // reader.seek(std::io::SeekFrom::Start(32)).await?;
+        // let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
+        // crate::codec::decode::decode_chunks(context, reader, writer).await?;
+        // Ok(meta)
+        todo!()
     }
 }
