@@ -22,10 +22,18 @@ pub struct Archive {
 // | offset           |                  size | description                                           |
 // |------------------|-----------------------|-------------------------------------------------------|
 // |         0        |                    16 | Archive file magic ("CHONKERFILE\xF0\x9F\x98\xB8\0"). |
-// |        16        | size - 40 - meta - 16 | Compressed data.                                      |
+// |        16        |                     8 | Archive format version (u64 le).                      |
+// |        24        |                     8 | Padding.                                              |
+// |        32        | size - 40 - meta - 32 | Compressed data.                                      |
 // | size - 40 - meta |             meta      | Compressed meta.                                      |
 // | size - 40        |         8             | Compressed meta size (u64 le).                        |
 // | size - 32        |        32             | Checksum of [size - 40 - meta .. size - 32].          |
+
+// NOTE: Currently we construct the archive in post-order, where the meta is at the end of the file.
+// This allows for more efficient encoding (since we can stream out encoded bytes as they are
+// created without buffering) but is not suitable for streaming decoding. We might consider allowing
+// this to be configured by the encoder in the future. In this case, we can use the padding bytes to
+// specify some additional data describing the layout strategy.
 
 impl Archive {
     #[allow(clippy::unused_async)]

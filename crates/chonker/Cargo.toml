@@ -24,6 +24,7 @@ rayon = "1.8"
 redb = "1.4"
 rkyv = { version = "0.7", features = ["alloc", "arbitrary_enum_discriminant", "archive_le", "smol_str", "strict", "tinyvec", "uuid", "validation"] }
 smol_str = "0.2"
+tempfile = "3.8.1"
 thread_local = "1.1"
 tinyvec = "1.6"
 tokio = { workspace = true, features = ["fs", "io-util"] }
