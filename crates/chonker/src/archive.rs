@@ -40,8 +40,8 @@ impl Archive {
         W: AsyncWrite + Unpin,
     {
         ArchiveHeader::write(&context, writer).await?;
-        let meta = crate::codec::encode::emit_chunks(context, reader, reader_size, writer).await?;
-        meta.write(writer).await?;
+        let meta = crate::codec::encode::emit_chunks(context.clone(), reader, reader_size, writer).await?;
+        meta.write(&context, writer).await?;
         Ok(Archive { meta })
     }
 }

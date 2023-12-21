@@ -1,3 +1,5 @@
+use crate::BoxResult;
+
 pub(crate) trait AsZstdWriteBuf {
     type WriteBuf<'a>: zstd::zstd_safe::WriteBuf
     where
@@ -31,5 +33,39 @@ impl AsZstdWriteBuf for rkyv::AlignedVec {
 
     fn as_zstd_write_buf(&mut self) -> Self::WriteBuf<'_> {
         AlignedVecZstdWriteBuf(self)
+    }
+}
+
+pub async fn fast_seq_open<P>(path: P) -> BoxResult<tokio::fs::File>
+where
+    P: AsRef<std::path::Path>,
+{
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(winapi::um::winbase::FILE_FLAG_SEQUENTIAL_SCAN)
+            .open(path)
+    }
+    #[cfg(not(windows))]
+    {
+        let file = tokio::fs::File::open(path).await?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+
+            unsafe {
+                #[cfg(target_os = "macos")]
+                libc::fcntl(file.as_raw_fd(), libc::F_RDAHEAD, 1);
+
+                #[cfg(not(target_os = "macos"))]
+                libc::posix_fadvise(file.as_raw_fd(), 0, 0, libc::POSIX_FADV_SEQUENTIAL);
+            }
+        }
+
+        Ok(file)
     }
 }

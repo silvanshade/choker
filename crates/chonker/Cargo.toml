@@ -43,6 +43,12 @@ features = ["rayon"]
 version = "1.5"
 features = ["neon", "no_sse2", "no_sse41", "no_avx2", "no_avx512"]
 
+[target.'cfg(target_family = "unix")'.dependencies.libc]
+version = "0.2"
+
+[target.'cfg(target_family = "windows")'.dependencies.winapi]
+version = "0.3"
+
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }

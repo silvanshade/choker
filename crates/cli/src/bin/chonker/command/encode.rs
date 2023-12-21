@@ -1,7 +1,8 @@
 use std::{path::Path, sync::Arc};
 
 pub(crate) async fn encode(path: &Path) -> crate::BoxResult<()> {
-    let reader = tokio::fs::File::open(path).await?;
+    // let reader = tokio::fs::File::open(path).await?;
+    let reader = chonker::io::fast_seq_open(path).await?;
     let reader_size = reader.metadata().await?.len();
     let context = Arc::new(chonker::EncodeContext {
         multi_progress: indicatif::MultiProgress::new().into(),

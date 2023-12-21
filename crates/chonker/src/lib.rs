@@ -8,7 +8,7 @@ pub(crate) mod cdc;
 pub(crate) mod codec;
 mod crypto;
 mod database;
-mod io;
+pub mod io;
 
 pub use archive::Archive;
 pub use codec::encode::EncodeContext;

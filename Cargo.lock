@@ -252,6 +252,7 @@ dependencies = [
  "fastcdc",
  "futures",
  "indicatif",
+ "libc",
  "rayon",
  "redb",
  "rkyv",
@@ -261,6 +262,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "uuid",
+ "winapi",
  "zstd",
 ]
 

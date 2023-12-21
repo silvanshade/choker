@@ -36,7 +36,7 @@ impl EncodeContext {
     const FASTCDC_AVG_CHUNK_SIZE: u32 = 131_072;
     const FASTCDC_MAX_CHUNK_SIZE: u32 = 524_288;
 
-    const ZSTD_COMPRESSION_LEVEL: i32 = i32::MAX;
+    const ZSTD_COMPRESSION_LEVEL: i32 = 15;
     const ZSTD_INCLUDE_CHECKSUM: bool = false;
     const ZSTD_INCLUDE_CONTENTSIZE: bool = false;
     const ZSTD_INCLUDE_DICTID: bool = false;

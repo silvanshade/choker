@@ -28,11 +28,10 @@ impl Default for ArchiveMeta {
 }
 
 impl ArchiveMeta {
-    pub(crate) async fn write<W>(&self, writer: &mut W) -> crate::BoxResult<()>
+    pub(crate) async fn write<W>(&self, context: &EncodeContext, writer: &mut W) -> crate::BoxResult<()>
     where
         W: AsyncWrite + Unpin,
     {
-        let context = EncodeContext::default();
         let mut hasher = blake3::Hasher::new();
 
         let metadata = rkyv::to_bytes::<Self, 0>(self)?;
@@ -46,7 +45,6 @@ impl ArchiveMeta {
                 .context_mut()
                 .set_pledged_src_size(Some(u64::try_from(metadata.len())?))
                 .unwrap();
-            compressor.set_compression_level(i32::MAX)?;
             compressor.multithread(n_workers)?;
             let mut buffer = compressed.as_zstd_write_buf();
             let size = compressor.compress_to_buffer(&metadata, &mut buffer)?;
