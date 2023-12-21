@@ -22,8 +22,8 @@ pub struct Archive {
 // | offset           |                  size | description                                           |
 // |------------------|-----------------------|-------------------------------------------------------|
 // |         0        |                    16 | Archive file magic ("CHONKERFILE\xF0\x9F\x98\xB8\0"). |
-// |        16        |                     8 | Archive format version (u64 le).                      |
-// |        24        |                     8 | Padding.                                              |
+// |        16        |                     2 | Archive format version (u64 le).                      |
+// |        18        |                    14 | Padding.                                              |
 // |        32        | size - 40 - meta - 32 | Compressed data.                                      |
 // | size - 40 - meta |             meta      | Compressed meta.                                      |
 // | size - 40        |         8             | Compressed meta size (u64 le).                        |
@@ -47,7 +47,8 @@ impl Archive {
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin,
     {
-        ArchiveHeader::write(&context, writer).await?;
+        let header = ArchiveHeader::default();
+        header.write(&context, writer).await?;
         let meta = crate::codec::encode::emit_chunks(context.clone(), reader, reader_size, writer).await?;
         meta.write(&context, writer).await?;
         Ok(Archive { meta })
