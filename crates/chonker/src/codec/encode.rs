@@ -103,14 +103,6 @@ pub(crate) enum EncodedChunkResult {
     },
 }
 
-// pub(crate) struct EncodedChunk {
-//     pub(crate) ordinal: usize,
-//     pub(crate) hash: [u8; 32],
-//     pub(crate) length: u64,
-//     pub(crate) offset: u64,
-//     pub(crate) compressed: Vec<u8>,
-// }
-
 fn process_one_chunk(
     context: Arc<EncodeContext>,
     thread_local: Arc<ThreadLocal<RefCell<ThreadLocalState>>>,
