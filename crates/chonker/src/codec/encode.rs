@@ -1,14 +1,12 @@
-use dashmap::{DashMap, DashSet};
-use futures::StreamExt;
+use dashmap::DashMap;
 use indicatif::MultiProgress;
 use std::{cell::RefCell, sync::Arc};
 use thread_local::ThreadLocal;
 use tokio::io::AsyncWriteExt;
-use tokio_stream::{wrappers::UnboundedReceiverStream, Stream};
 
 use crate::{
-    archive::{chunk::ArchiveChunk, header::ArchiveHeader, meta::ArchiveMeta},
-    cdc::{AsyncStreamChunker, Chunker},
+    archive::{chunk::ArchiveChunk, meta::ArchiveMeta},
+    cdc::AsyncStreamChunker,
 };
 
 pub struct EncodeContext {
@@ -51,15 +49,15 @@ impl EncodeContext {
         Ok(())
     }
 
-    #[allow(clippy::unused_self)]
-    fn configure_zstd_decompressor(&self, decompressor: &mut zstd::bulk::Decompressor) -> crate::BoxResult<()> {
-        decompressor.include_magicbytes(Self::ZSTD_INCLUDE_MAGICBYTES)?;
-        Ok(())
-    }
+    // #[allow(clippy::unused_self)]
+    // fn configure_zstd_decompressor(&self, decompressor: &mut zstd::bulk::Decompressor) -> crate::BoxResult<()> {
+    //     decompressor.include_magicbytes(Self::ZSTD_INCLUDE_MAGICBYTES)?;
+    //     Ok(())
+    // }
 
-    fn chunker_from_slice<'data>(&self, slice: &'data [u8]) -> Chunker<'data> {
-        Chunker::new(self, slice)
-    }
+    // fn chunker_from_slice<'data>(&self, slice: &'data [u8]) -> Chunker<'data> {
+    //     Chunker::new(self, slice)
+    // }
 
     fn async_stream_chunker<R>(&self, source: R) -> AsyncStreamChunker<R>
     where
@@ -105,13 +103,13 @@ pub(crate) enum EncodedChunkResult {
     },
 }
 
-pub(crate) struct EncodedChunk {
-    pub(crate) ordinal: usize,
-    pub(crate) hash: [u8; 32],
-    pub(crate) length: u64,
-    pub(crate) offset: u64,
-    pub(crate) compressed: Vec<u8>,
-}
+// pub(crate) struct EncodedChunk {
+//     pub(crate) ordinal: usize,
+//     pub(crate) hash: [u8; 32],
+//     pub(crate) length: u64,
+//     pub(crate) offset: u64,
+//     pub(crate) compressed: Vec<u8>,
+// }
 
 fn process_one_chunk(
     context: Arc<EncodeContext>,

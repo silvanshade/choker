@@ -19,7 +19,7 @@ const CHONKER_FILE_FORMAT_V0: u16 = 0u16;
 impl ArchiveHeader {
     pub(crate) const FILE_MAGIC: [u8; 16] = *b"CHONKERFILE\xF0\x9F\x98\xB8\0";
 
-    pub(crate) async fn write<W>(&self, context: &EncodeContext, writer: &mut W) -> crate::BoxResult<()>
+    pub(crate) async fn write<W>(&self, _context: &EncodeContext, writer: &mut W) -> crate::BoxResult<()>
     where
         W: AsyncWrite + Unpin,
     {

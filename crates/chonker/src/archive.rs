@@ -2,19 +2,17 @@ pub(crate) mod chunk;
 pub(crate) mod header;
 pub(crate) mod meta;
 
-use core::pin::pin;
-use futures::stream::StreamExt;
-use std::{collections::hash_map::Entry, sync::Arc};
-use tinyvec::tiny_vec;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::{
-    archive::{chunk::ArchiveChunk, header::ArchiveHeader, meta::ArchiveMeta},
+    archive::{header::ArchiveHeader, meta::ArchiveMeta},
     codec::encode::EncodeContext,
 };
 
 pub struct Archive {
-    pub meta: ArchiveMeta,
+    #[allow(unused)]
+    pub(crate) meta: ArchiveMeta,
 }
 
 // Archive bytes layout:

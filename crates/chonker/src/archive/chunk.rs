@@ -1,6 +1,4 @@
 use rkyv::bytecheck;
-use tinyvec::TinyVec;
-use uuid::Uuid;
 
 #[cfg_attr(feature = "debug", derive(Debug))]
 #[derive(Clone, rkyv::Archive, rkyv::Serialize)]
