@@ -222,19 +222,30 @@ where
     // Allocate the source chunks vec with the estimated length to avoid reallocations.
     let mut src_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
 
-    let pb = match (reader_size, context.multi_progress.as_ref()) {
+    let src_processed_bar = match (reader_size, context.multi_progress.as_ref()) {
         (Some(size), Some(mp)) => {
-            let pb = mp.add(indicatif::ProgressBar::new(size));
-            let style = indicatif::ProgressStyle::with_template(
-                    "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})",
-                )?
-                .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
-            pb.set_style(style);
-            pb.set_prefix("encoding");
-            Some(pb)
+            let src_processed_bar = mp.add(indicatif::ProgressBar::new(size));
+            src_processed_bar.set_style(indicatif::ProgressStyle::with_template(
+                "{prefix:11.bold.dim} {spinner:.green} {elapsed_precise:8} [{wide_bar:.green/black}] {bytes}/{total_bytes}",
+            )?);
+            src_processed_bar.set_prefix("encoding");
+            Some(src_processed_bar)
         },
         _ => None,
     };
+
+    let arc_size_bar =
+        match (reader_size, context.multi_progress.as_ref()) {
+            (Some(size), Some(mp)) => {
+                let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
+                arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
+                    "{prefix:11.bold.dim} {spinner:.green} {percent:>7}% [{wide_bar:.red/black}] {bytes}/{total_bytes}",
+                )?);
+                arc_size_bar.set_prefix("compression");
+                Some(arc_size_bar)
+            },
+            _ => None,
+        };
 
     // Process the encoded chunks as they arrive from the worker threads.
     while let Some((ordinal, result)) = encoded_chunks_rx.recv().await {
@@ -242,35 +253,37 @@ where
         if ordinal >= src_chunks.len() {
             src_chunks.resize_with(2 * src_chunks.len(), Default::default);
         }
-        let src_pos_delta =
-            match result {
-                EncodedChunkResult::Data {
+        let src_pos_delta = match result {
+            EncodedChunkResult::Data {
+                checksum,
+                src_length,
+                src_offset,
+                compressed,
+            } => {
+                src_chunks[ordinal] = ArchiveChunk::Data {
                     checksum,
                     src_length,
                     src_offset,
-                    compressed,
-                } => {
-                    src_chunks[ordinal] = ArchiveChunk::Data {
-                        checksum,
-                        src_length,
-                        src_offset,
-                        arc_offset: arc_pos,
-                    };
-                    writer.write_all(compressed.as_slice()).await?;
-                    arc_pos += u64::try_from(compressed.len())?;
-                    src_length
-                },
-                EncodedChunkResult::Dupe { index } => {
-                    src_chunks[ordinal] = ArchiveChunk::Dupe { index };
-                    let Some(ArchiveChunk::Data { src_length: length, .. }) = src_chunks.get(usize::try_from(index)?)
-                    else {
-                        return Err("invalid dupe index".into());
-                    };
-                    *length
-                },
-            };
+                    arc_offset: arc_pos,
+                };
+                writer.write_all(compressed.as_slice()).await?;
+                arc_pos += u64::try_from(compressed.len())?;
+                if let Some(pb) = arc_size_bar.as_ref() {
+                    pb.inc(u64::try_from(compressed.len())?);
+                }
+                src_length
+            },
+            EncodedChunkResult::Dupe { index } => {
+                src_chunks[ordinal] = ArchiveChunk::Dupe { index };
+                let Some(ArchiveChunk::Data { src_length: length, .. }) = src_chunks.get(usize::try_from(index)?)
+                else {
+                    return Err("invalid dupe index".into());
+                };
+                *length
+            },
+        };
         src_pos += src_pos_delta;
-        if let Some(pb) = pb.as_ref() {
+        if let Some(pb) = src_processed_bar.as_ref() {
             pb.inc(src_pos_delta);
         }
     }
@@ -278,8 +291,11 @@ where
     // Truncate the source chunks vec to the actual chunk count.
     src_chunks.truncate(actual_chunk_count);
 
-    if let Some(pb) = pb.as_ref() {
+    if let Some(pb) = src_processed_bar.as_ref() {
         pb.finish();
+    }
+    if let Some(pb) = arc_size_bar.as_ref() {
+        pb.abandon();
     }
 
     Ok(ChonkerArchiveMeta {
