@@ -123,21 +123,21 @@ fn process_one_chunk(
             .map_err(|err| format!("set_pleged_src_size failed: {err}"))?;
 
         let data = chunk.data;
-        let hash = <[u8; 32]>::from(blake3::hash(data.as_slice()));
+        let checksum = <[u8; 32]>::from(blake3::hash(data.as_slice()));
 
-        if let Some(unique) = processed.get(&hash) {
+        if let Some(unique) = processed.get(&checksum) {
             state.borrow_mut().chunks_tx.send((ordinal, EncodedChunkResult::Dupe {
                 index: u64::try_from(*unique)?,
             }))?;
         } else {
-            processed.insert(hash, ordinal);
-            let offset = chunk.offset;
-            let length = u64::try_from(chunk.length)?;
+            processed.insert(checksum, ordinal);
+            let src_offset = chunk.offset;
+            let src_length = u64::try_from(chunk.length)?;
             let compressed = state.borrow_mut().compressor.compress(data.as_slice())?;
             state.borrow_mut().chunks_tx.send((ordinal, EncodedChunkResult::Data {
-                checksum: hash,
-                src_length: length,
-                src_offset: offset,
+                checksum,
+                src_length,
+                src_offset,
                 compressed,
             }))?;
         }
@@ -167,11 +167,7 @@ where
 
         for (ordinal, result) in chunker.enumerate() {
             let chunk = result?;
-            // if chunk.length > 131_072 {
-            //     hasher.update_rayon(chunk.data.as_slice());
-            // } else {
             hasher.update(chunk.data.as_slice());
-            // }
             let context = context.clone();
             let thread_local = thread_local.clone();
             let chunks_tx = encoded_chunks_tx.clone();
