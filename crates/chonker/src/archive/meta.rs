@@ -35,46 +35,54 @@ impl Default for ChonkerArchiveMeta {
 impl ChonkerArchiveMeta {
     pub(crate) fn read<'meta, R>(
         context: &mut DecodeContext,
-        mut meta_frame: &'meta mut rkyv::AlignedVec,
+        mut meta_bytes: &'meta mut rkyv::AlignedVec,
         mut reader: R,
         reader_size: u64,
     ) -> crate::BoxResult<(std::io::Take<R>, u64, &'meta rkyv::Archived<ChonkerArchiveMeta>)>
     where
         R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin,
     {
+        // Read [-40 .. -32] to get the meta frame size.
         let meta_size = reader.read_u64_at::<byteorder::LittleEndian>(reader_size - 40)?;
         let meta_len = usize::try_from(meta_size)?;
         let meta_off = i64::try_from(meta_size)?;
 
+        // Read [-32 ..] to get the meta frame checksum.
         let expected_checksum = &mut [0u8; 32];
         reader.read_exact_at(reader_size - 32, expected_checksum)?;
 
-        let meta_frame_compressed = &mut Vec::with_capacity(meta_len + 8);
-        let mut meta_frame_reader =
-            {
-                reader.seek(std::io::SeekFrom::End(-40 - meta_off))?;
-                reader.take(meta_size + 8)
-            };
-        let meta_frame_size = std::io::copy(&mut meta_frame_reader, meta_frame_compressed)?;
-        debug_assert_eq!(meta_frame_size, meta_size + 8);
+        // Read [-40 - meta .. -32] to get the meta frame.
+        let meta_frame = &mut Vec::with_capacity(meta_len);
+        let mut meta_frame_reader = {
+            reader.seek(std::io::SeekFrom::End(-40 - meta_off))?;
+            reader.take(meta_size)
+        };
+        let meta_frame_read = std::io::copy(&mut meta_frame_reader, meta_frame)?;
+        assert_eq!(meta_frame_read, meta_size);
 
+        // Verify the checksum of the meta frame.
         let actual_checksum = blake3::hash(meta_frame.as_slice());
-        debug_assert_eq!(actual_checksum.as_bytes(), expected_checksum);
+        assert_eq!(actual_checksum.as_bytes(), expected_checksum);
 
-        let content_size = zstd_safe::get_frame_content_size(meta_frame_compressed)
+        // Extract the meta frame (zstd) content size.
+        let meta_frame_content_size = zstd_safe::get_frame_content_size(meta_frame)
             .map_err(|err| err.to_string())?
             .ok_or("Failed to get compressed size of meta frame")?;
-        meta_frame.reserve_exact(usize::try_from(content_size)? - meta_frame.len());
+        meta_bytes.reserve_exact(usize::try_from(meta_frame_content_size)? - meta_bytes.len());
 
-        let mut decompressor = zstd::stream::read::Decoder::new(&meta_frame_compressed[..])?;
+        // Decompress the meta frame.
+        let mut decompressor = zstd::stream::read::Decoder::new(meta_frame.as_slice())?;
         context.configure_zstd_stream_decompressor(&mut decompressor)?;
 
-        let decompressed_size = std::io::copy(&mut decompressor, &mut meta_frame)?;
-        debug_assert_eq!(decompressed_size, content_size);
+        // Read the decompressed meta frame into the meta bytes buffer.
+        let meta_bytes_read = std::io::copy(&mut decompressor, &mut meta_bytes)?;
+        assert_eq!(meta_bytes_read, meta_frame_content_size);
 
-        let meta = rkyv::check_archived_root::<ChonkerArchiveMeta>(&meta_frame.as_slice()[.. meta_frame.len() - 8])
+        // Zero-copy convert the meta bytes into the rkyv::Archived<ChonkerArchiveMeta>.
+        let meta = rkyv::check_archived_root::<ChonkerArchiveMeta>(&meta_bytes.as_slice()[.. meta_bytes.len() - 8])
             .map_err(|err| err.to_string())?;
 
+        // Prepare the reader for reading the archive source chunks.
         let mut reader = meta_frame_reader.into_inner();
         reader.seek(std::io::SeekFrom::Start(32))?;
         let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
@@ -106,7 +114,7 @@ impl ChonkerArchiveMeta {
             let size = rkyv::rend::u64_le::from(size);
             rkyv::to_bytes::<rkyv::rend::u64_le, 0>(&size)?
         };
-        debug_assert_eq!(size.len(), core::mem::size_of::<u64>());
+        assert_eq!(size.len(), core::mem::size_of::<u64>());
 
         writer.write_all(compressed.as_slice()).await?;
         hasher.update(compressed.as_slice());
