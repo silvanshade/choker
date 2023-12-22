@@ -15,19 +15,19 @@ use crate::{
 #[derive(rkyv::Archive, rkyv::Serialize)]
 #[archive_attr(derive(Debug, rkyv::CheckBytes))]
 pub struct ChonkerArchiveMeta {
-    pub(crate) application_version: SmolStr,
-    pub(crate) source_size: u64,
-    pub(crate) source_checksum: [u8; 32],
-    pub(crate) source_chunks: Vec<ArchiveChunk>,
+    pub(crate) app_version: SmolStr,
+    pub(crate) src_size: u64,
+    pub(crate) src_checksum: [u8; 32],
+    pub(crate) src_chunks: Vec<ArchiveChunk>,
 }
 
 impl Default for ChonkerArchiveMeta {
     fn default() -> Self {
         Self {
-            application_version: env!("CARGO_PKG_VERSION").into(),
-            source_checksum: [0; 32],
-            source_size: 0,
-            source_chunks: Vec::default(),
+            app_version: env!("CARGO_PKG_VERSION").into(),
+            src_checksum: [0; 32],
+            src_size: 0,
+            src_chunks: Vec::default(),
         }
     }
 }
@@ -38,7 +38,7 @@ impl ChonkerArchiveMeta {
         mut meta_bytes: &'meta mut rkyv::AlignedVec,
         mut reader: R,
         reader_size: u64,
-    ) -> crate::BoxResult<(std::io::Take<R>, u64, &'meta rkyv::Archived<ChonkerArchiveMeta>)>
+    ) -> crate::BoxResult<(R, &'meta rkyv::Archived<ChonkerArchiveMeta>, u64)>
     where
         R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin,
     {
@@ -82,17 +82,17 @@ impl ChonkerArchiveMeta {
         let meta = rkyv::check_archived_root::<ChonkerArchiveMeta>(&meta_bytes.as_slice()[.. meta_bytes.len() - 8])
             .map_err(|err| err.to_string())?;
 
-        // Prepare the reader for reading the archive source chunks.
-        let mut reader = meta_frame_reader.into_inner();
-        reader.seek(std::io::SeekFrom::Start(32))?;
-        let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
+        // // Prepare the reader for reading the archive source chunks.
+        // let reader = meta_frame_reader.into_inner();
+        // reader.seek(std::io::SeekFrom::Start(32))?;
+        // let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
 
-        Ok((reader, meta_size, meta))
+        Ok((meta_frame_reader.into_inner(), meta, meta_size))
     }
 
     pub(crate) async fn write<W>(&self, context: &EncodeContext, mut writer: W) -> crate::BoxResult<()>
     where
-        W: AsyncWrite + Unpin,
+        W: tokio::io::AsyncWrite + Unpin,
     {
         let mut hasher = blake3::Hasher::new();
 

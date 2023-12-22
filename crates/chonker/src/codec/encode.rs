@@ -92,13 +92,13 @@ impl ThreadLocalState {
 
 pub(crate) enum EncodedChunkResult {
     Data {
-        hash: [u8; 32],
-        length: u64,
-        offset: u64,
+        checksum: [u8; 32],
+        src_length: u64,
+        src_offset: u64,
         compressed: Vec<u8>,
     },
     Dupe {
-        pointer: u64,
+        index: u64,
     },
 }
 
@@ -127,7 +127,7 @@ fn process_one_chunk(
 
         if let Some(unique) = processed.get(&hash) {
             state.borrow_mut().chunks_tx.send((ordinal, EncodedChunkResult::Dupe {
-                pointer: u64::try_from(*unique)?,
+                index: u64::try_from(*unique)?,
             }))?;
         } else {
             processed.insert(hash, ordinal);
@@ -135,9 +135,9 @@ fn process_one_chunk(
             let length = u64::try_from(chunk.length)?;
             let compressed = state.borrow_mut().compressor.compress(data.as_slice())?;
             state.borrow_mut().chunks_tx.send((ordinal, EncodedChunkResult::Data {
-                hash,
-                length,
-                offset,
+                checksum: hash,
+                src_length: length,
+                src_offset: offset,
                 compressed,
             }))?;
         }
@@ -198,7 +198,7 @@ where
     let (encoded_chunks_tx, mut encoded_chunks_rx) =
         tokio::sync::mpsc::unbounded_channel::<(usize, EncodedChunkResult)>();
 
-    let source_checksum = tokio::task::spawn_blocking({
+    let src_checksum = tokio::task::spawn_blocking({
         let context = context.clone();
         move || {
             let thread_local = Arc::new(thread_local::ThreadLocal::new());
@@ -217,18 +217,18 @@ where
     // Remember the actual chunk count.
     let mut actual_chunk_count = 0;
 
-    let mut source_size = 0;
+    let mut src_pos = 0;
+    let mut arc_pos = 0;
 
     // Allocate the source chunks vec with the estimated length to avoid reallocations.
-    let mut source_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
+    let mut src_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
 
     let pb = match (reader_size, context.multi_progress.as_ref()) {
         (Some(size), Some(mp)) => {
             let pb = mp.add(indicatif::ProgressBar::new(size));
             let style = indicatif::ProgressStyle::with_template(
                     "{prefix:.bold.dim} {spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})",
-                )
-                .unwrap()
+                )?
                 .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ");
             pb.set_style(style);
             pb.set_prefix("encoding");
@@ -240,45 +240,53 @@ where
     // Process the encoded chunks as they arrive from the worker threads.
     while let Some((ordinal, result)) = encoded_chunks_rx.recv().await {
         actual_chunk_count += 1;
-        if ordinal >= source_chunks.len() {
-            source_chunks.resize_with(2 * source_chunks.len(), Default::default);
+        if ordinal >= src_chunks.len() {
+            src_chunks.resize_with(2 * src_chunks.len(), Default::default);
         }
-        let mut delta = 0;
-        match result {
-            EncodedChunkResult::Data {
-                hash,
-                length,
-                offset,
-                compressed,
-            } => {
-                source_chunks[ordinal] = ArchiveChunk::Data { hash, length, offset };
-                writer.write_all(compressed.as_slice()).await?;
-                delta = length;
-            },
-            EncodedChunkResult::Dupe { pointer } => {
-                source_chunks[ordinal] = ArchiveChunk::Dupe { pointer };
-                if let Some(ArchiveChunk::Data { length, .. }) = source_chunks.get(usize::try_from(pointer)?) {
-                    delta = *length;
-                }
-            },
-        }
-        source_size += delta;
+        let src_pos_delta =
+            match result {
+                EncodedChunkResult::Data {
+                    checksum,
+                    src_length,
+                    src_offset,
+                    compressed,
+                } => {
+                    src_chunks[ordinal] = ArchiveChunk::Data {
+                        checksum,
+                        src_length,
+                        src_offset,
+                        arc_offset: arc_pos,
+                    };
+                    writer.write_all(compressed.as_slice()).await?;
+                    arc_pos += u64::try_from(compressed.len())?;
+                    src_length
+                },
+                EncodedChunkResult::Dupe { index } => {
+                    src_chunks[ordinal] = ArchiveChunk::Dupe { index };
+                    let Some(ArchiveChunk::Data { src_length: length, .. }) = src_chunks.get(usize::try_from(index)?)
+                    else {
+                        return Err("invalid dupe index".into());
+                    };
+                    *length
+                },
+            };
+        src_pos += src_pos_delta;
         if let Some(pb) = pb.as_ref() {
-            pb.inc(delta);
+            pb.inc(src_pos_delta);
         }
     }
 
     // Truncate the source chunks vec to the actual chunk count.
-    source_chunks.truncate(actual_chunk_count);
+    src_chunks.truncate(actual_chunk_count);
 
     if let Some(pb) = pb.as_ref() {
         pb.finish();
     }
 
     Ok(ChonkerArchiveMeta {
-        source_checksum: source_checksum.await??.into(),
-        source_size,
-        source_chunks,
+        src_checksum: src_checksum.await??.into(),
+        src_size: src_pos,
+        src_chunks,
         ..ChonkerArchiveMeta::default()
     })
 }

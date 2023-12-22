@@ -38,8 +38,8 @@ impl ChonkerArchive {
         writer: &mut W,
     ) -> crate::BoxResult<ChonkerArchiveMeta>
     where
-        R: AsyncRead + Unpin + Send + 'static,
-        W: AsyncWrite + Unpin,
+        R: tokio::io::AsyncRead + Unpin + Send + 'static,
+        W: tokio::io::AsyncWrite + Unpin,
     {
         let header = ChonkerArchiveHeader::default();
         header.write(&context, writer).await?;
@@ -57,15 +57,14 @@ impl ChonkerArchive {
         writer: &mut W,
     ) -> crate::BoxResult<&'meta rkyv::Archived<ChonkerArchiveMeta>>
     where
-        R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin,
-        W: AsyncWrite + Unpin,
+        R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin + Send,
+        W: tokio::io::AsyncWrite + Unpin,
     {
-        let (reader, meta_size, meta) = tokio::task::block_in_place(|| -> crate::BoxResult<_> {
+        let (reader, meta, meta_size) = tokio::task::block_in_place(|| -> crate::BoxResult<_> {
             let header = ChonkerArchiveHeader::read(&context, reader)?;
             ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)
         })?;
-        // let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
-        // crate::codec::decode::decode_chunks(context, reader, writer).await?;
+        crate::codec::decode::decode_chunks(context, meta, meta_size, reader, writer).await?;
         Ok(meta)
     }
 }

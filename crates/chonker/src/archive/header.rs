@@ -43,7 +43,7 @@ impl ChonkerArchiveHeader {
 
     pub(crate) async fn write<W>(&self, _context: &EncodeContext, writer: &mut W) -> crate::BoxResult<()>
     where
-        W: AsyncWrite + Unpin,
+        W: tokio::io::AsyncWrite + Unpin,
     {
         writer.write_all(&Self::FILE_MAGIC).await?;
         writer.write_u16_le(self.format_version).await?;

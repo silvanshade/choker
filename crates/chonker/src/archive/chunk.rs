@@ -4,15 +4,24 @@ use rkyv::bytecheck;
 #[derive(Clone, rkyv::Archive, rkyv::Serialize)]
 #[archive_attr(derive(Debug, rkyv::CheckBytes))]
 pub(crate) enum ArchiveChunk {
-    Data { hash: [u8; 32], length: u64, offset: u64 },
-    Dupe { pointer: u64 },
+    Data {
+        checksum: [u8; 32],
+        src_length: u64,
+        src_offset: u64,
+        arc_offset: u64,
+    },
+    Dupe {
+        index: u64,
+    },
 }
 
 impl Default for ArchiveChunk {
     fn default() -> Self {
-        let hash = <[u8; 32]>::default();
-        let length = u64::default();
-        let offset = u64::default();
-        ArchiveChunk::Data { hash, length, offset }
+        ArchiveChunk::Data {
+            checksum: <[u8; 32]>::default(),
+            src_length: u64::default(),
+            src_offset: u64::default(),
+            arc_offset: u64::default(),
+        }
     }
 }

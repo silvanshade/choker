@@ -28,21 +28,34 @@ impl DecodeContext {
 
 #[allow(clippy::unused_async)]
 pub(crate) async fn decode_chunks<R, W>(
-    context: &mut DecodeContext,
+    context: DecodeContext,
     meta: &rkyv::Archived<ChonkerArchiveMeta>,
+    meta_size: u64,
     reader: R,
     writer: &mut W,
-) -> crate::BoxResult<()> {
-    for chunk in meta.source_chunks.iter() {
-        match chunk {
-            rkyv::Archived::<ArchiveChunk>::Data { hash, length, offset } => {
-                //
-            },
-            rkyv::Archived::<ArchiveChunk>::Dupe { pointer } => {
-                //
-            },
+) -> crate::BoxResult<()>
+where
+    R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin + Send,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    tokio::task::block_in_place(|| -> crate::BoxResult<_> {
+        for chunk in meta.src_chunks.iter() {
+            match chunk {
+                rkyv::Archived::<ArchiveChunk>::Data {
+                    checksum,
+                    src_length,
+                    src_offset,
+                    arc_offset,
+                } => {
+                    //
+                },
+                rkyv::Archived::<ArchiveChunk>::Dupe { index } => {
+                    //
+                },
+            }
         }
-    }
+        Ok(())
+    })?;
 
     Ok(())
 }
