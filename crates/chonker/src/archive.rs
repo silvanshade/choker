@@ -49,21 +49,23 @@ impl ChonkerArchive {
     }
 
     #[allow(clippy::unused_async)]
-    pub async fn decode<R, W>(
-        context: Arc<DecodeContext>,
+    pub async fn decode<'meta, R, W>(
+        mut context: DecodeContext,
+        meta_frame: &'meta mut rkyv::AlignedVec,
         reader: &mut R,
         reader_size: u64,
         writer: &mut W,
-    ) -> crate::BoxResult<&'static rkyv::Archived<ChonkerArchiveMeta>>
+    ) -> crate::BoxResult<&'meta rkyv::Archived<ChonkerArchiveMeta>>
     where
-        R: AsyncRead + AsyncSeek + Unpin,
+        R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin,
         W: AsyncWrite + Unpin,
     {
-        let header = ChonkerArchiveHeader::read(&context, reader).await?;
-        let (meta_size, meta) = ChonkerArchiveMeta::read(context.clone(), reader).await?;
-        reader.seek(std::io::SeekFrom::Start(32)).await?;
-        let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
-        crate::codec::decode::decode_chunks(context, reader, writer).await?;
+        let (reader, meta_size, meta) = tokio::task::block_in_place(|| -> crate::BoxResult<_> {
+            let header = ChonkerArchiveHeader::read(&context, reader)?;
+            ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)
+        })?;
+        // let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
+        // crate::codec::decode::decode_chunks(context, reader, writer).await?;
         Ok(meta)
     }
 }

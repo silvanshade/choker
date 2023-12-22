@@ -36,16 +36,15 @@ impl EncodeContext {
 
     const ZSTD_COMPRESSION_LEVEL: i32 = i32::MAX;
     const ZSTD_INCLUDE_CHECKSUM: bool = false;
-    const ZSTD_INCLUDE_CONTENTSIZE: bool = false;
     const ZSTD_INCLUDE_DICTID: bool = false;
-    const ZSTD_INCLUDE_MAGICBYTES: bool = false;
 
-    pub(crate) fn configure_zstd_compressor(&self, compressor: &mut zstd::bulk::Compressor) -> crate::BoxResult<()> {
+    pub(crate) fn configure_zstd_bulk_compressor(
+        &self,
+        compressor: &mut zstd::bulk::Compressor,
+    ) -> crate::BoxResult<()> {
         compressor.set_compression_level(self.zstd_compression_level)?;
         compressor.include_checksum(Self::ZSTD_INCLUDE_CHECKSUM)?;
-        compressor.include_contentsize(Self::ZSTD_INCLUDE_CONTENTSIZE)?;
         compressor.include_dictid(Self::ZSTD_INCLUDE_DICTID)?;
-        compressor.include_magicbytes(Self::ZSTD_INCLUDE_MAGICBYTES)?;
         Ok(())
     }
 
@@ -86,7 +85,7 @@ impl ThreadLocalState {
         chunks_tx: tokio::sync::mpsc::UnboundedSender<(usize, EncodedChunkResult)>,
     ) -> crate::BoxResult<Self> {
         let mut compressor = zstd::bulk::Compressor::default();
-        context.configure_zstd_compressor(&mut compressor)?;
+        context.configure_zstd_bulk_compressor(&mut compressor)?;
         Ok(Self { compressor, chunks_tx })
     }
 }

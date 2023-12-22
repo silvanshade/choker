@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use positioned_io::{ReadAt, ReadBytesAtExt};
 use rkyv::bytecheck;
 use smol_str::SmolStr;
@@ -33,10 +35,10 @@ impl Default for ChonkerArchiveMeta {
 impl ChonkerArchiveMeta {
     pub(crate) fn read<'meta, R>(
         context: &mut DecodeContext,
-        meta_frame: &'meta mut rkyv::AlignedVec,
+        mut meta_frame: &'meta mut rkyv::AlignedVec,
         mut reader: R,
         reader_size: u64,
-    ) -> crate::BoxResult<(u64, &'meta rkyv::Archived<ChonkerArchiveMeta>)>
+    ) -> crate::BoxResult<(std::io::Take<R>, u64, &'meta rkyv::Archived<ChonkerArchiveMeta>)>
     where
         R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin,
     {
@@ -47,28 +49,37 @@ impl ChonkerArchiveMeta {
         let expected_checksum = &mut [0u8; 32];
         reader.read_exact_at(reader_size - 32, expected_checksum)?;
 
-        meta_frame.reserve_exact(meta_len + 8 - meta_frame.len());
+        let meta_frame_compressed = &mut Vec::with_capacity(meta_len + 8);
         let mut meta_frame_reader =
             {
                 reader.seek(std::io::SeekFrom::End(-40 - meta_off))?;
                 reader.take(meta_size + 8)
             };
-        let meta_frame_len =
-            tokio::task::block_in_place(|| -> crate::BoxResult<usize> {
-                meta_frame
-                    .extend_from_reader(&mut meta_frame_reader)
-                    .map_err(Into::into)
-            })?;
-        debug_assert_eq!(meta_frame_len, meta_len + 8);
+        let meta_frame_size = std::io::copy(&mut meta_frame_reader, meta_frame_compressed)?;
+        debug_assert_eq!(meta_frame_size, meta_size + 8);
 
         let actual_checksum = blake3::hash(meta_frame.as_slice());
-        assert_eq!(actual_checksum.as_bytes(), expected_checksum);
+        debug_assert_eq!(actual_checksum.as_bytes(), expected_checksum);
 
-        // FIXME: decompress first
-        let meta = rkyv::check_archived_root::<ChonkerArchiveMeta>(&meta_frame[.. meta_frame.len() - 8])
+        let content_size = zstd_safe::get_frame_content_size(meta_frame_compressed)
+            .map_err(|err| err.to_string())?
+            .ok_or("Failed to get compressed size of meta frame")?;
+        meta_frame.reserve_exact(usize::try_from(content_size)? - meta_frame.len());
+
+        let mut decompressor = zstd::stream::read::Decoder::new(&meta_frame_compressed[..])?;
+        context.configure_zstd_stream_decompressor(&mut decompressor)?;
+
+        let decompressed_size = std::io::copy(&mut decompressor, &mut meta_frame)?;
+        debug_assert_eq!(decompressed_size, content_size);
+
+        let meta = rkyv::check_archived_root::<ChonkerArchiveMeta>(&meta_frame.as_slice()[.. meta_frame.len() - 8])
             .map_err(|err| err.to_string())?;
 
-        Ok((meta_size, meta))
+        let mut reader = meta_frame_reader.into_inner();
+        reader.seek(std::io::SeekFrom::Start(32))?;
+        let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
+
+        Ok((reader, meta_size, meta))
     }
 
     pub(crate) async fn write<W>(&self, context: &EncodeContext, mut writer: W) -> crate::BoxResult<()>
@@ -83,7 +94,7 @@ impl ChonkerArchiveMeta {
         let size = {
             let n_workers = u32::try_from(usize::from(std::thread::available_parallelism()?))?;
             let mut compressor = zstd::bulk::Compressor::default();
-            context.configure_zstd_compressor(&mut compressor)?;
+            context.configure_zstd_bulk_compressor(&mut compressor)?;
             compressor
                 .context_mut()
                 .set_pledged_src_size(Some(u64::try_from(metadata.len())?))

@@ -1,4 +1,5 @@
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use byteorder::ReadBytesExt;
+use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::codec::{decode::DecodeContext, encode::EncodeContext};
 
@@ -19,20 +20,20 @@ const CHONKER_FILE_FORMAT_V0: u16 = 0u16;
 impl ChonkerArchiveHeader {
     pub(crate) const FILE_MAGIC: [u8; 16] = *b"CHONKERFILE\xF0\x9F\x98\xB8\0";
 
-    pub(crate) async fn read<R>(_context: &DecodeContext, reader: &mut R) -> crate::BoxResult<ChonkerArchiveHeader>
+    pub(crate) fn read<R>(_context: &DecodeContext, reader: &mut R) -> crate::BoxResult<ChonkerArchiveHeader>
     where
-        R: AsyncRead + Unpin,
+        R: std::io::Read,
     {
         let buf = &mut [0u8; Self::FILE_MAGIC.len()];
-        reader.read_exact(buf).await?;
+        reader.read_exact(buf)?;
         if buf != &Self::FILE_MAGIC {
             return Err(crate::BoxError::from("invalid file magic"));
         }
 
-        let format_version = reader.read_u16_le().await?;
+        let format_version = reader.read_u16::<byteorder::LittleEndian>()?;
 
         let buf = &mut [0u8; 14];
-        reader.read_exact(buf).await?;
+        reader.read_exact(buf)?;
         if buf != &[0u8; 14] {
             return Err(crate::BoxError::from("invalid padding"));
         }

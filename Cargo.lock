@@ -274,6 +274,7 @@ dependencies = [
  "uuid",
  "winapi",
  "zstd",
+ "zstd-safe",
 ]
 
 [[package]]
