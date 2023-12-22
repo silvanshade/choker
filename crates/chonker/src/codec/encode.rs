@@ -171,12 +171,13 @@ where
             // ThreadPool with other chunk processing jobs, it's actually less efficient due to
             // resource contention.
             //
-            // NOTE: I believe we could theoretically avoid additional work here by reusing parts of
-            // the hashing state we obtain from individually hashing each CDC chunk, and manually
-            // recombining the intermediate results into the overall hash. However, this would
-            // require a lower level algorithm using the `blake3::guts` non-public API (if it's even
-            // possible), and it may not be worth it in the end anyway.
-
+            // NOTE: Theoretically, we could avoid some work by reusing the BLAKE3 chunk states:
+            //
+            // - First, create a chunk state to calculate the individual hash for the CDC chunk.
+            // - Next, reuse the same chunk state to calculate the CV and update the CV stack.
+            // - Finally, once all individual CDC chunks are processed, finalize the root.
+            //
+            // However, in practice this seems to be slower (around 25% on M3 Max). Should revisit.
             hasher.update(chunk.data.as_slice());
             let context = context.clone();
             let thread_local = thread_local.clone();
