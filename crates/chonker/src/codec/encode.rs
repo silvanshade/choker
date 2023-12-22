@@ -167,6 +167,16 @@ where
 
         for (ordinal, result) in chunker.enumerate() {
             let chunk = result?;
+            // NOTE: We could use `update_rayon` here, but since we're already maxing out the
+            // ThreadPool with other chunk processing jobs, it's actually less efficient due to
+            // resource contention.
+            //
+            // NOTE: I believe we could theoretically avoid additional work here by reusing parts of
+            // the hashing state we obtain from individually hashing each CDC chunk, and manually
+            // recombining the intermediate results into the overall hash. However, this would
+            // require a lower level algorithm using the `blake3::guts` non-public API (if it's even
+            // possible), and it may not be worth it in the end anyway.
+
             hasher.update(chunk.data.as_slice());
             let context = context.clone();
             let thread_local = thread_local.clone();
