@@ -31,7 +31,7 @@ pub struct ChonkerArchive;
 // specify some additional data describing the layout strategy.
 
 impl ChonkerArchive {
-    pub async fn create<R, W>(
+    pub async fn encode<R, W>(
         context: Arc<EncodeContext>,
         reader: R,
         reader_size: Option<u64>,
@@ -59,12 +59,11 @@ impl ChonkerArchive {
         R: AsyncRead + AsyncSeek + Unpin,
         W: AsyncWrite + Unpin,
     {
-        // let header = ChonkerArchiveHeader::read(&context, reader).await?;
-        // let (meta_size, meta) = ChonkerArchiveMeta::read(context.clone(), reader).await?;
-        // reader.seek(std::io::SeekFrom::Start(32)).await?;
-        // let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
-        // crate::codec::decode::decode_chunks(context, reader, writer).await?;
-        // Ok(meta)
-        todo!()
+        let header = ChonkerArchiveHeader::read(&context, reader).await?;
+        let (meta_size, meta) = ChonkerArchiveMeta::read(context.clone(), reader).await?;
+        reader.seek(std::io::SeekFrom::Start(32)).await?;
+        let reader = reader.take(reader_size - 16 - 2 - 14 - meta_size - 8 - 32);
+        crate::codec::decode::decode_chunks(context, reader, writer).await?;
+        Ok(meta)
     }
 }

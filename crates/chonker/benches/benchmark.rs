@@ -22,7 +22,7 @@ pub fn create(c: &mut Criterion) {
                     let reader = reader.clone();
                     writer.clear();
                     let start = std::time::Instant::now();
-                    chonker::ChonkerArchive::create(context, reader, reader_size, &mut writer)
+                    chonker::ChonkerArchive::encode(context, reader, reader_size, &mut writer)
                         .await
                         .unwrap();
                     total_time += start.elapsed();

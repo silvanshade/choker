@@ -8,6 +8,6 @@ pub(crate) async fn encode(path: &Path) -> crate::BoxResult<()> {
         ..Default::default()
     });
     let writer = &mut tokio::fs::File::create(path.with_extension("chonker")).await?;
-    chonker::ChonkerArchive::create(context, reader, Some(reader_size), writer).await?;
+    chonker::ChonkerArchive::encode(context, reader, Some(reader_size), writer).await?;
     Ok(())
 }
