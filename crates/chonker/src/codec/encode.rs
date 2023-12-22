@@ -170,14 +170,6 @@ where
             // NOTE: We could use `update_rayon` here, but since we're already maxing out the
             // ThreadPool with other chunk processing jobs, it's actually less efficient due to
             // resource contention.
-            //
-            // NOTE: Theoretically, we could avoid some work by reusing the BLAKE3 chunk states:
-            //
-            // - First, create a chunk state to calculate the individual hash for the CDC chunk.
-            // - Next, reuse the same chunk state to calculate the CV and update the CV stack.
-            // - Finally, once all individual CDC chunks are processed, finalize the root.
-            //
-            // However, in practice this seems to be slower (around 25% on M3 Max). Should revisit.
             hasher.update(chunk.data.as_slice());
             let context = context.clone();
             let thread_local = thread_local.clone();
