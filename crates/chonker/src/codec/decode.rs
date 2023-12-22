@@ -1,9 +1,8 @@
-use rkyv::AlignedVec;
-
-use crate::archive::meta::ChonkerArchiveMeta;
+use crate::archive::{chunk::ArchiveChunk, meta::ChonkerArchiveMeta};
+use positioned_io::ReadAt;
 
 pub struct DecodeContext {
-    meta_frame: AlignedVec,
+    meta_frame: rkyv::AlignedVec,
 }
 
 #[allow(clippy::unused_async)]
@@ -13,6 +12,16 @@ pub(crate) async fn decode_chunks<R, W>(
     reader: R,
     writer: &mut W,
 ) -> crate::BoxResult<()> {
-    // meta.
+    for chunk in meta.source_chunks.iter() {
+        match chunk {
+            rkyv::Archived::<ArchiveChunk>::Data { hash, length, offset } => {
+                //
+            },
+            rkyv::Archived::<ArchiveChunk>::Dupe { pointer } => {
+                //
+            },
+        }
+    }
+
     Ok(())
 }

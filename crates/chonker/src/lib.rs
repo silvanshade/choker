@@ -4,6 +4,7 @@
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::similar_names)]
+#![allow(unused)]
 
 mod archive;
 pub(crate) mod cdc;

@@ -7,7 +7,7 @@ pub(crate) async fn encode(path: &Path) -> crate::BoxResult<()> {
         multi_progress: indicatif::MultiProgress::new().into(),
         ..Default::default()
     });
-    let writer = &mut tokio::io::sink();
+    let writer = &mut tokio::fs::File::create(path.with_extension("chonker")).await?;
     chonker::ChonkerArchive::create(context, reader, Some(reader_size), writer).await?;
     Ok(())
 }
