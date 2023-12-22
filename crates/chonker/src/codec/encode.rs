@@ -34,7 +34,7 @@ impl EncodeContext {
     const FASTCDC_AVG_CHUNK_SIZE: u32 = 131_072;
     const FASTCDC_MAX_CHUNK_SIZE: u32 = 524_288;
 
-    const ZSTD_COMPRESSION_LEVEL: i32 = -5;
+    const ZSTD_COMPRESSION_LEVEL: i32 = 22;
     const ZSTD_INCLUDE_CHECKSUM: bool = false;
     const ZSTD_INCLUDE_DICTID: bool = false;
 
@@ -93,7 +93,7 @@ impl ThreadLocalState {
 pub(crate) enum EncodedChunkResult {
     Data {
         checksum: [u8; 32],
-        src_length: u64,
+        src_length: u32,
         src_offset: u64,
         compressed: Vec<u8>,
     },
@@ -132,7 +132,7 @@ fn process_one_chunk(
         } else {
             processed.insert(checksum, ordinal);
             let src_offset = chunk.offset;
-            let src_length = u64::try_from(chunk.length)?;
+            let src_length = u32::try_from(chunk.length)?;
             let compressed = state.borrow_mut().compressor.compress(data.as_slice())?;
             state.borrow_mut().chunks_tx.send((ordinal, EncodedChunkResult::Data {
                 checksum,
@@ -184,6 +184,7 @@ where
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub(crate) async fn encode_chunks<R, W>(
     context: Arc<EncodeContext>,
     reader: R,
@@ -216,8 +217,8 @@ where
     // Remember the actual chunk count.
     let mut actual_chunk_count = 0;
 
-    let mut src_pos = 0;
-    let mut arc_pos = 0;
+    let mut src_pos = 0u64;
+    let mut arc_pos = 0u64;
 
     // Allocate the source chunks vec with the estimated length to avoid reallocations.
     let mut src_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
@@ -226,7 +227,7 @@ where
         (Some(size), Some(mp)) => {
             let src_processed_bar = mp.add(indicatif::ProgressBar::new(size));
             src_processed_bar.set_style(indicatif::ProgressStyle::with_template(
-                "{prefix:11.bold.dim} {spinner:.green} {elapsed_precise:8} [{wide_bar:.green/black}] {bytes}/{total_bytes}",
+                "{prefix:>11.bold.dim} {spinner:.green} {elapsed_precise:8} [{wide_bar:.green/black}] {bytes:>10}/{total_bytes}",
             )?);
             src_processed_bar.set_prefix("encoding");
             Some(src_processed_bar)
@@ -234,18 +235,29 @@ where
         _ => None,
     };
 
-    let arc_size_bar =
-        match (reader_size, context.multi_progress.as_ref()) {
-            (Some(size), Some(mp)) => {
-                let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
-                arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-                    "{prefix:11.bold.dim} {spinner:.green} {percent:>7}% [{wide_bar:.red/black}] {bytes}/{total_bytes}",
-                )?);
-                arc_size_bar.set_prefix("compression");
-                Some(arc_size_bar)
-            },
-            _ => None,
-        };
+    let arc_size_bar = match (reader_size, context.multi_progress.as_ref()) {
+        (Some(size), Some(mp)) => {
+            let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
+            arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
+                "{prefix:>11.bold.dim} {spinner:.green} {percent:>7}% [{wide_bar:.red/black}] {bytes:>10}/{total_bytes}",
+            )?);
+            arc_size_bar.set_prefix("compression");
+            Some(arc_size_bar)
+        },
+        _ => None,
+    };
+
+    let dupe_size_bar = match (reader_size, context.multi_progress.as_ref()) {
+        (Some(size), Some(mp)) => {
+            let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
+            arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
+                "{prefix:>11.bold.dim} {spinner:.green} {percent:>7}% [{wide_bar:.yellow/black}] {bytes:>10}/{total_bytes}",
+            )?);
+            arc_size_bar.set_prefix("duplication");
+            Some(arc_size_bar)
+        },
+        _ => None,
+    };
 
     // Process the encoded chunks as they arrive from the worker threads.
     while let Some((ordinal, result)) = encoded_chunks_rx.recv().await {
@@ -262,9 +274,10 @@ where
             } => {
                 src_chunks[ordinal] = ArchiveChunk::Data {
                     checksum,
-                    src_length,
                     src_offset,
+                    src_length,
                     arc_offset: arc_pos,
+                    arc_length: u32::try_from(compressed.len())?,
                 };
                 writer.write_all(compressed.as_slice()).await?;
                 arc_pos += u64::try_from(compressed.len())?;
@@ -275,16 +288,21 @@ where
             },
             EncodedChunkResult::Dupe { index } => {
                 src_chunks[ordinal] = ArchiveChunk::Dupe { index };
-                let Some(ArchiveChunk::Data { src_length: length, .. }) = src_chunks.get(usize::try_from(index)?)
+                let Some(ArchiveChunk::Data {
+                    src_length, arc_length, ..
+                }) = src_chunks.get(usize::try_from(index)?)
                 else {
                     return Err("invalid dupe index".into());
                 };
-                *length
+                if let Some(pb) = dupe_size_bar.as_ref() {
+                    pb.inc(u64::try_from(*arc_length)?);
+                }
+                *src_length
             },
         };
-        src_pos += src_pos_delta;
+        src_pos += u64::from(src_pos_delta);
         if let Some(pb) = src_processed_bar.as_ref() {
-            pb.inc(src_pos_delta);
+            pb.inc(u64::from(src_pos_delta));
         }
     }
 
@@ -295,6 +313,9 @@ where
         pb.finish();
     }
     if let Some(pb) = arc_size_bar.as_ref() {
+        pb.abandon();
+    }
+    if let Some(pb) = dupe_size_bar.as_ref() {
         pb.abandon();
     }
 

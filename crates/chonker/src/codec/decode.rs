@@ -43,9 +43,10 @@ where
             match chunk {
                 rkyv::Archived::<ArchiveChunk>::Data {
                     checksum,
-                    src_length,
                     src_offset,
+                    src_length,
                     arc_offset,
+                    arc_length,
                 } => {
                     //
                 },
