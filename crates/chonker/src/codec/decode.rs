@@ -11,7 +11,7 @@ impl DecodeContext {
     #[allow(clippy::unnecessary_wraps, clippy::unused_self)]
     pub(crate) fn configure_zstd_bulk_decompressor(
         &self,
-        decompressor: &mut zstd::bulk::Decompressor,
+        _decompressor: &mut zstd::bulk::Decompressor,
     ) -> crate::BoxResult<()> {
         Ok(())
     }
@@ -19,7 +19,7 @@ impl DecodeContext {
     #[allow(clippy::unnecessary_wraps, clippy::unused_self)]
     pub(crate) fn configure_zstd_stream_decompressor<R>(
         &self,
-        decompressor: &mut zstd::stream::read::Decoder<R>,
+        _decompressor: &mut zstd::stream::read::Decoder<R>,
     ) -> crate::BoxResult<()>
     where
         R: std::io::BufRead,
