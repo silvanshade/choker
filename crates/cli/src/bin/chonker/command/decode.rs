@@ -3,7 +3,10 @@ use std::path::Path;
 use chonker::DecodeContext;
 
 pub(crate) fn decode(reader_path: &Path) -> crate::BoxResult<()> {
-    let Some(writer_path) = reader_path.file_stem() else {
+    let Some(writer_path) = reader_path
+        .parent()
+        .and_then(|parent| reader_path.file_stem().map(|file_stem| parent.join(file_stem)))
+    else {
         return Err("invalid file name".into());
     };
     let reader = &mut chonker::io::std_fast_seq_open(reader_path)?;
