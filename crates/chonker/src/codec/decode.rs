@@ -3,11 +3,15 @@ use std::io::prelude::Write;
 
 use crate::archive::{chunk::ArchiveChunk, meta::ChonkerArchiveMeta};
 
-pub struct DecodeContext {
-    meta_frame: rkyv::AlignedVec,
-}
+#[derive(Default)]
+pub struct DecodeContext {}
 
 impl DecodeContext {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     #[allow(clippy::unnecessary_wraps, clippy::unused_self)]
     pub(crate) fn configure_zstd_bulk_decompressor(
         &self,
@@ -38,9 +42,8 @@ pub(crate) fn decode_chunks<R, W>(
 ) -> crate::BoxResult<()>
 where
     R: positioned_io::ReadAt + std::io::Read + std::io::Seek,
-    W: tokio::io::AsyncWrite + Unpin,
+    W: std::io::Write,
 {
-    let mut writer = tokio_util::io::SyncIoBridge::new(writer);
     let mut decompressor = zstd::bulk::Decompressor::new()?;
     let mut src_data = Vec::new();
     let mut arc_data = Vec::new();

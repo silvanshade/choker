@@ -58,7 +58,7 @@ impl ChonkerArchive {
     ) -> crate::BoxResult<&'meta rkyv::Archived<ChonkerArchiveMeta>>
     where
         R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin + Send,
-        W: tokio::io::AsyncWrite + Unpin,
+        W: std::io::Write,
     {
         ChonkerArchiveHeader::read(&context, reader)?;
         let (reader, meta, meta_size) = ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)?;

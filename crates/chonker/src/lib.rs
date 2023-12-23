@@ -13,8 +13,10 @@ mod crypto;
 mod database;
 pub mod io;
 
-pub use archive::ChonkerArchive;
-pub use codec::encode::EncodeContext;
+pub use crate::{
+    archive::ChonkerArchive,
+    codec::{decode::DecodeContext, encode::EncodeContext},
+};
 
 type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 type BoxResult<T> = Result<T, BoxError>;
