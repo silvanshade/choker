@@ -26,54 +26,6 @@ pub struct EncodeContextProgress {
     pub progress_archiving: ProgressBar,
 }
 
-impl EncodeContextProgress {
-    pub fn new(report_size: u64) -> BoxResult<Self> {
-        let multi_progress = MultiProgress::new();
-
-        let progress_analyzing = multi_progress.add(ProgressBar::new(report_size));
-        progress_analyzing.set_style(
-            indicatif::ProgressStyle::default_bar()
-                .template("{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}")?
-                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-                .progress_chars("#>-"),
-        );
-        progress_analyzing.enable_steady_tick(std::time::Duration::from_millis(125));
-        progress_analyzing.set_prefix("analyzing");
-
-        let progress_deduping = multi_progress.add(ProgressBar::new(report_size));
-        progress_deduping.set_style(indicatif::ProgressStyle::default_bar().template(
-            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
-        )?);
-        progress_deduping.set_prefix("deduping");
-
-        let progress_archiving = multi_progress.add(ProgressBar::new(report_size));
-        progress_archiving.set_style(indicatif::ProgressStyle::default_bar().template(
-            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
-        )?);
-        progress_archiving.set_prefix("archiving");
-
-        Ok(Self {
-            multi_progress,
-            progress_analyzing,
-            progress_deduping,
-            progress_archiving,
-        })
-    }
-}
-
-// impl Default for EncodeContext {
-//     fn default() -> Self {
-//         Self {
-//             cdc_min_chunk_size: Self::FASTCDC_MIN_CHUNK_SIZE,
-//             cdc_avg_chunk_size: Self::FASTCDC_AVG_CHUNK_SIZE,
-//             cdc_max_chunk_size: Self::FASTCDC_MAX_CHUNK_SIZE,
-//             zstd_compression_level: Self::ZSTD_COMPRESSION_LEVEL,
-//             report_progress: false,
-//             multi_progress: None,
-//         }
-//     }
-// }
-
 impl EncodeContext {
     const FASTCDC_MIN_CHUNK_SIZE: u32 = 1024;
     const FASTCDC_AVG_CHUNK_SIZE: u32 = 131_072;
@@ -139,6 +91,65 @@ impl EncodeContext {
     // fn update_progress(&self) -> crate::BoxResult<()> {
     //     Ok(())
     // }
+
+    fn progress_update(&self, src_data_size: u64, arc_data_size: u64, arc_dupe_size: u64) {
+        if let Some(progress) = self.progress.as_ref() {
+            progress.update(src_data_size, arc_data_size, arc_dupe_size);
+        }
+    }
+
+    fn progress_finish(&self) {
+        if let Some(progress) = self.progress.as_ref() {
+            progress.finish();
+        }
+    }
+}
+
+impl EncodeContextProgress {
+    pub fn new(report_size: u64) -> BoxResult<Self> {
+        let multi_progress = MultiProgress::new();
+
+        let progress_analyzing = multi_progress.add(ProgressBar::new(report_size));
+        progress_analyzing.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}")?
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                .progress_chars("#>-"),
+        );
+        progress_analyzing.enable_steady_tick(std::time::Duration::from_millis(100));
+        progress_analyzing.set_prefix("analyzing");
+
+        let progress_deduping = multi_progress.add(ProgressBar::new(report_size));
+        progress_deduping.set_style(indicatif::ProgressStyle::default_bar().template(
+            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
+        )?);
+        progress_deduping.set_prefix("deduping");
+
+        let progress_archiving = multi_progress.add(ProgressBar::new(report_size));
+        progress_archiving.set_style(indicatif::ProgressStyle::default_bar().template(
+            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
+        )?);
+        progress_archiving.set_prefix("archiving");
+
+        Ok(Self {
+            multi_progress,
+            progress_analyzing,
+            progress_deduping,
+            progress_archiving,
+        })
+    }
+
+    fn update(&self, src_data_size: u64, arc_data_size: u64, arc_dupe_size: u64) {
+        self.progress_analyzing.set_position(src_data_size);
+        self.progress_deduping.set_position(arc_dupe_size);
+        self.progress_archiving.set_position(arc_data_size);
+    }
+
+    fn finish(&self) {
+        self.progress_analyzing.finish();
+        self.progress_deduping.abandon();
+        self.progress_archiving.abandon();
+    }
 }
 
 struct ThreadLocalState {
@@ -283,54 +294,12 @@ where
     // Remember the actual chunk count.
     let mut actual_chunk_count = 0;
 
-    let mut src_pos = 0u64;
-    let mut arc_pos = 0u64;
+    let mut src_data_size = 0u64;
+    let mut arc_data_size = 0u64;
+    let mut arc_dupe_size = 0u64;
 
     // Allocate the source chunks vec with the estimated length to avoid reallocations.
     let mut src_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
-
-    // let analyzing_bar = match (reader_size, context.multi_progress.as_ref()) {
-    //     (Some(size), Some(mp)) => {
-    //         let src_processed_bar = mp.add(ProgressBar::new(size));
-    //         src_processed_bar.set_style(
-    //             indicatif::ProgressStyle::with_template(
-    //                 "{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}",
-    //             )?
-    //             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-    //             .progress_chars("#>-"),
-    //         );
-    //         src_processed_bar.enable_steady_tick(std::time::Duration::from_millis(125));
-    //         src_processed_bar.set_prefix("analyzing");
-    //         Some(src_processed_bar)
-    //     },
-    //     _ => None,
-    // };
-
-    // let deduping_bar =
-    //     match (reader_size, context.multi_progress.as_ref()) {
-    //         (Some(size), Some(mp)) => {
-    //             let arc_size_bar = mp.add(ProgressBar::new(size));
-    //             arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-    //             "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
-    //         )?);
-    //             arc_size_bar.set_prefix("deduping");
-    //             Some(arc_size_bar)
-    //         },
-    //         _ => None,
-    //     };
-
-    // let archiving_bar =
-    //     match (reader_size, context.multi_progress.as_ref()) {
-    //         (Some(size), Some(mp)) => {
-    //             let arc_size_bar = mp.add(ProgressBar::new(size));
-    //             arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-    //                 "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
-    //             )?);
-    //             arc_size_bar.set_prefix("archiving");
-    //             Some(arc_size_bar)
-    //         },
-    //         _ => None,
-    //     };
 
     // Process the encoded chunks as they arrive from the worker threads.
     while let Some((ordinal, result)) = encoded_chunks_rx.recv().await {
@@ -338,7 +307,7 @@ where
         if ordinal >= src_chunks.len() {
             src_chunks.resize_with(2 * src_chunks.len(), Default::default);
         }
-        let src_pos_delta = match result {
+        match result {
             EncodedChunkResult::Data {
                 checksum,
                 src_length,
@@ -349,15 +318,12 @@ where
                     checksum,
                     src_offset,
                     src_length,
-                    arc_offset: arc_pos,
+                    arc_offset: arc_data_size,
                     arc_length: u32::try_from(compressed.len())?,
                 };
                 writer.write_all(compressed.as_slice()).await?;
-                arc_pos += u64::try_from(compressed.len())?;
-                // if let Some(pb) = archiving_bar.as_ref() {
-                //     pb.inc(u64::try_from(compressed.len())?);
-                // }
-                src_length
+                src_data_size += u64::from(src_length);
+                arc_data_size += u64::try_from(compressed.len())?;
             },
             EncodedChunkResult::Dupe { index } => {
                 src_chunks[ordinal] = ArchiveChunk::Dupe { index };
@@ -367,35 +333,22 @@ where
                 else {
                     return Err("invalid dupe index".into());
                 };
-                // if let Some(pb) = deduping_bar.as_ref() {
-                //     pb.inc(u64::try_from(*arc_length)?);
-                // }
-                *src_length
+                src_data_size += u64::from(*src_length);
+                arc_dupe_size += u64::from(*arc_length);
             },
         };
-        let src_pos_delta = u64::from(src_pos_delta);
-        src_pos += src_pos_delta;
-        // if let Some(pb) = analyzing_bar.as_ref() {
-        //     pb.inc(src_pos_delta);
-        // }
+        context.progress_update(src_data_size, arc_data_size, arc_dupe_size);
     }
 
     // Truncate the source chunks vec to the actual chunk count.
     src_chunks.truncate(actual_chunk_count);
 
-    // if let Some(pb) = analyzing_bar.as_ref() {
-    //     pb.finish();
-    // }
-    // if let Some(pb) = archiving_bar.as_ref() {
-    //     pb.abandon();
-    // }
-    // if let Some(pb) = deduping_bar.as_ref() {
-    //     pb.abandon();
-    // }
+    // Finish the progress bars.
+    context.progress_finish();
 
     Ok(ChonkerArchiveMeta {
         src_checksum: src_checksum.await??.into(),
-        src_size: src_pos,
+        src_size: src_data_size,
         src_chunks,
         ..ChonkerArchiveMeta::default()
     })
