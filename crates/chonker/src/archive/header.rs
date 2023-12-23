@@ -10,31 +10,33 @@ pub(crate) struct ChonkerArchiveHeader {
 impl Default for ChonkerArchiveHeader {
     fn default() -> Self {
         Self {
-            format_version: CHONKER_FILE_FORMAT_V0,
+            format_version: Self::CHONKER_FILE_FORMAT_V0,
         }
     }
 }
 
-const CHONKER_FILE_FORMAT_V0: u16 = 0u16;
-
 impl ChonkerArchiveHeader {
-    pub(crate) const FILE_MAGIC: [u8; 16] = *b"CHONKERFILE\xF0\x9F\x98\xB8\0";
+    const CHONKER_FILE_MAGIC: [u8; 16] = *b"CHONKERFILE\xF0\x9F\x98\xB8\0";
+    const CHONKER_FILE_FORMAT_V0: u16 = 0u16;
+    const CHONKER_FILE_HEADER_PADDING: &'static [u8] = &[0u8; 8];
+    pub(crate) const CHONKER_FILE_HEADER_OFFSET: usize =
+        Self::CHONKER_FILE_MAGIC.len() + core::mem::size_of::<u64>() + Self::CHONKER_FILE_HEADER_PADDING.len();
 
     pub(crate) fn read<R>(_context: &DecodeContext, reader: &mut R) -> crate::BoxResult<ChonkerArchiveHeader>
     where
         R: std::io::Read,
     {
-        let buf = &mut [0u8; Self::FILE_MAGIC.len()];
+        let buf = &mut [0u8; Self::CHONKER_FILE_MAGIC.len()];
         reader.read_exact(buf)?;
-        if buf != &Self::FILE_MAGIC {
+        if buf != &Self::CHONKER_FILE_MAGIC {
             return Err(crate::BoxError::from("invalid file magic"));
         }
 
         let format_version = reader.read_u16::<byteorder::LittleEndian>()?;
 
-        let buf = &mut [0u8; 14];
+        let buf = &mut [0u8; Self::CHONKER_FILE_HEADER_PADDING.len()];
         reader.read_exact(buf)?;
-        if buf != &[0u8; 14] {
+        if buf != Self::CHONKER_FILE_HEADER_PADDING {
             return Err(crate::BoxError::from("invalid padding"));
         }
 
@@ -45,7 +47,7 @@ impl ChonkerArchiveHeader {
     where
         W: tokio::io::AsyncWrite + Unpin,
     {
-        writer.write_all(&Self::FILE_MAGIC).await?;
+        writer.write_all(&Self::CHONKER_FILE_MAGIC).await?;
         writer.write_u16_le(self.format_version).await?;
         writer.write_all(&[0u8; 14]).await?;
         Ok(())

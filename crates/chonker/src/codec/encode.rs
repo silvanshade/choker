@@ -310,6 +310,7 @@ where
     let mut src_data_size = 0u64;
     let mut arc_data_size = 0u64;
     let mut arc_dupe_size = 0u64;
+    let arc_header_offset = u64::try_from(crate::archive::header::ChonkerArchiveHeader::CHONKER_FILE_HEADER_OFFSET)?;
 
     // Allocate the source chunks vec with the estimated length to avoid reallocations.
     let mut src_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
@@ -327,7 +328,7 @@ where
                 src_offset,
                 compressed,
             } => {
-                let arc_offset = arc_data_size;
+                let arc_offset = arc_header_offset + arc_data_size;
                 let arc_length = u32::try_from(compressed.len())?;
                 src_chunks[ordinal] = ArchiveChunk::Data {
                     checksum,
