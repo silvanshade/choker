@@ -223,44 +223,44 @@ where
     // Allocate the source chunks vec with the estimated length to avoid reallocations.
     let mut src_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
 
-    let src_processed_bar = match (reader_size, context.multi_progress.as_ref()) {
+    let analyzing_bar = match (reader_size, context.multi_progress.as_ref()) {
         (Some(size), Some(mp)) => {
             let src_processed_bar = mp.add(indicatif::ProgressBar::new(size));
             src_processed_bar.set_style(
                 indicatif::ProgressStyle::with_template(
-                    "{prefix:>11.bold.dim} {spinner:.green} {elapsed_precise:8} [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}",
+                    "{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}",
                 )?
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-                .progress_chars("#>-")
+                .progress_chars("#>-"),
             );
-            src_processed_bar.set_prefix("encoding");
             src_processed_bar.enable_steady_tick(std::time::Duration::from_millis(125));
+            src_processed_bar.set_prefix("analyzing");
             Some(src_processed_bar)
         },
         _ => None,
     };
 
-    let arc_size_bar =
+    let deduping_bar =
         match (reader_size, context.multi_progress.as_ref()) {
             (Some(size), Some(mp)) => {
                 let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
                 arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-                    "{prefix:>11.bold.dim}   {percent:>7}% [{wide_bar:.red/black}] {bytes:>10}             ",
-                )?);
-                arc_size_bar.set_prefix("archiving");
+                "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
+            )?);
+                arc_size_bar.set_prefix("deduping");
                 Some(arc_size_bar)
             },
             _ => None,
         };
 
-    let dupe_size_bar =
+    let archiving_bar =
         match (reader_size, context.multi_progress.as_ref()) {
             (Some(size), Some(mp)) => {
                 let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
                 arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-                    "{prefix:>11.bold.dim}   {percent:>7}% [{wide_bar:.yellow/black}] {bytes:>10}             ",
+                    "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
                 )?);
-                arc_size_bar.set_prefix("duplication");
+                arc_size_bar.set_prefix("archiving");
                 Some(arc_size_bar)
             },
             _ => None,
@@ -288,7 +288,7 @@ where
                 };
                 writer.write_all(compressed.as_slice()).await?;
                 arc_pos += u64::try_from(compressed.len())?;
-                if let Some(pb) = arc_size_bar.as_ref() {
+                if let Some(pb) = archiving_bar.as_ref() {
                     pb.inc(u64::try_from(compressed.len())?);
                 }
                 src_length
@@ -301,28 +301,29 @@ where
                 else {
                     return Err("invalid dupe index".into());
                 };
-                if let Some(pb) = dupe_size_bar.as_ref() {
+                if let Some(pb) = deduping_bar.as_ref() {
                     pb.inc(u64::try_from(*arc_length)?);
                 }
                 *src_length
             },
         };
-        src_pos += u64::from(src_pos_delta);
-        if let Some(pb) = src_processed_bar.as_ref() {
-            pb.inc(u64::from(src_pos_delta));
+        let src_pos_delta = u64::from(src_pos_delta);
+        src_pos += src_pos_delta;
+        if let Some(pb) = analyzing_bar.as_ref() {
+            pb.inc(src_pos_delta);
         }
     }
 
     // Truncate the source chunks vec to the actual chunk count.
     src_chunks.truncate(actual_chunk_count);
 
-    if let Some(pb) = src_processed_bar.as_ref() {
+    if let Some(pb) = analyzing_bar.as_ref() {
         pb.finish();
     }
-    if let Some(pb) = arc_size_bar.as_ref() {
+    if let Some(pb) = archiving_bar.as_ref() {
         pb.abandon();
     }
-    if let Some(pb) = dupe_size_bar.as_ref() {
+    if let Some(pb) = deduping_bar.as_ref() {
         pb.abandon();
     }
 
