@@ -34,7 +34,7 @@ impl EncodeContext {
     const FASTCDC_AVG_CHUNK_SIZE: u32 = 131_072;
     const FASTCDC_MAX_CHUNK_SIZE: u32 = 524_288;
 
-    const ZSTD_COMPRESSION_LEVEL: i32 = 22;
+    const ZSTD_COMPRESSION_LEVEL: i32 = 15;
     const ZSTD_INCLUDE_CHECKSUM: bool = false;
     const ZSTD_INCLUDE_DICTID: bool = false;
 
@@ -150,7 +150,7 @@ fn process_all_chunks<R>(
     context: Arc<EncodeContext>,
     reader: R,
     thread_local: Arc<ThreadLocal<RefCell<ThreadLocalState>>>,
-    encoded_chunks_tx: tokio::sync::mpsc::UnboundedSender<(usize, EncodedChunkResult)>,
+    chunks_tx: tokio::sync::mpsc::UnboundedSender<(usize, EncodedChunkResult)>,
 ) -> impl FnOnce(&rayon::Scope) -> crate::BoxResult<blake3::Hash>
 where
     R: tokio::io::AsyncRead + Unpin,
@@ -173,7 +173,7 @@ where
             hasher.update(chunk.data.as_slice());
             let context = context.clone();
             let thread_local = thread_local.clone();
-            let chunks_tx = encoded_chunks_tx.clone();
+            let chunks_tx = chunks_tx.clone();
             let processed = processed.clone();
             scope.spawn(move |scope| {
                 process_one_chunk(context, thread_local, chunks_tx, processed, ordinal, chunk)(scope).unwrap();
@@ -195,15 +195,14 @@ where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin,
 {
-    let (encoded_chunks_tx, mut encoded_chunks_rx) =
-        tokio::sync::mpsc::unbounded_channel::<(usize, EncodedChunkResult)>();
+    let (chunks_tx, mut encoded_chunks_rx) = tokio::sync::mpsc::unbounded_channel::<(usize, EncodedChunkResult)>();
 
     let src_checksum = tokio::task::spawn_blocking({
         let context = context.clone();
         move || {
             let thread_local = Arc::new(thread_local::ThreadLocal::new());
             let pool = rayon::ThreadPoolBuilder::new().build()?;
-            let checksum = pool.in_place_scope(process_all_chunks(context, reader, thread_local, encoded_chunks_tx))?;
+            let checksum = pool.in_place_scope(process_all_chunks(context, reader, thread_local, chunks_tx))?;
             Ok::<_, crate::BoxError>(checksum)
         }
     });
