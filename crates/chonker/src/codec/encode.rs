@@ -59,16 +59,6 @@ impl EncodeContext {
         Ok(())
     }
 
-    // #[allow(clippy::unused_self)]
-    // fn configure_zstd_decompressor(&self, decompressor: &mut zstd::bulk::Decompressor) -> crate::BoxResult<()> {
-    //     decompressor.include_magicbytes(Self::ZSTD_INCLUDE_MAGICBYTES)?;
-    //     Ok(())
-    // }
-
-    // fn chunker_from_slice<'data>(&self, slice: &'data [u8]) -> Chunker<'data> {
-    //     Chunker::new(self, slice)
-    // }
-
     fn async_stream_chunker<R>(&self, source: R) -> AsyncStreamChunker<R>
     where
         R: tokio::io::AsyncRead + Unpin,
@@ -83,14 +73,6 @@ impl EncodeContext {
         // NOTE: better to overallocate and truncate than to underallocate and reallocate
         Ok(2 * estimated_count)
     }
-
-    // fn update_init_progress(&self) -> crate::BoxResult<()> {
-    //     Ok(())
-    // }
-
-    // fn update_progress(&self) -> crate::BoxResult<()> {
-    //     Ok(())
-    // }
 
     fn progress_update(&self, src_data_size: u64, arc_data_size: u64, arc_dupe_size: u64) {
         if let Some(progress) = self.progress.as_ref() {
