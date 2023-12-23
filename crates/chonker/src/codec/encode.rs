@@ -112,24 +112,24 @@ impl EncodeContextProgress {
         let progress_analyzing = multi_progress.add(ProgressBar::new(report_size));
         progress_analyzing.set_style(
             indicatif::ProgressStyle::default_bar()
-                .template("{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}")?
+                .template("{prefix:>11.bold.dim}  {spinner:.green}{spinner:.yellow}{spinner:.red}  [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}")?
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
                 .progress_chars("#>-"),
         );
         progress_analyzing.enable_steady_tick(std::time::Duration::from_millis(100));
-        progress_analyzing.set_prefix("analyzing");
+        progress_analyzing.set_prefix("analyzing 🔬");
 
         let progress_deduping = multi_progress.add(ProgressBar::new(report_size));
         progress_deduping.set_style(indicatif::ProgressStyle::default_bar().template(
-            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
+            "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.yellow/black}] {bytes:>10} (dupe bytes)",
         )?);
-        progress_deduping.set_prefix("deduping");
+        progress_deduping.set_prefix("deduping ♻️");
 
         let progress_archiving = multi_progress.add(ProgressBar::new(report_size));
         progress_archiving.set_style(indicatif::ProgressStyle::default_bar().template(
-            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
+            "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.red/black}] {bytes:>10} (file bytes)",
         )?);
-        progress_archiving.set_prefix("archiving");
+        progress_archiving.set_prefix("archiving 🗄️");
 
         Ok(Self {
             multi_progress,
