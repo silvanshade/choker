@@ -52,6 +52,8 @@ where
     let mut chunks = meta.src_chunks.iter();
     let mut dupes: Vec<&rkyv::Archived<ArchiveChunk>> = vec![];
 
+    let mut hasher = blake3::Hasher::new();
+
     while let Some(chunk) = dupes.pop().or_else(|| chunks.next()) {
         match chunk {
             rkyv::Archived::<ArchiveChunk>::Data {
@@ -72,6 +74,10 @@ where
                     src_data.resize(src_len, 0);
                 }
                 decompressor.decompress_to_buffer(&arc_data[.. arc_len], &mut src_data[.. src_len])?;
+
+                assert_eq!(checksum, blake3::hash(&src_data[.. src_len]).as_bytes());
+                hasher.update(&src_data[.. src_len]);
+
                 writer.write_all(&src_data[.. src_len])?;
             },
             rkyv::Archived::<ArchiveChunk>::Dupe { index } => {
@@ -80,6 +86,8 @@ where
             },
         }
     }
+
+    assert_eq!(&meta.src_checksum, hasher.finalize().as_bytes());
 
     Ok(())
 }
