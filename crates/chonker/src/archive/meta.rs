@@ -44,30 +44,29 @@ impl ChonkerArchiveMeta {
     {
         // Read [-40 .. -32] to get the meta frame size.
         let meta_size = reader.read_u64_at::<byteorder::LittleEndian>(reader_size - 40)?;
-        println!("size: {meta_size}");
         let meta_len = usize::try_from(meta_size)?;
         let meta_off = i64::try_from(meta_size)?;
 
         // Read [-32 ..] to get the meta frame checksum.
         let expected_checksum = &mut [0u8; 32];
         reader.read_exact_at(reader_size - 32, expected_checksum)?;
-        println!("checksum: {expected_checksum:?}");
 
         // Read [-40 - meta .. -32] to get the meta frame.
-        let meta_frame = &mut rkyv::AlignedVec::with_capacity(meta_len);
+        let meta_frame = &mut rkyv::AlignedVec::with_capacity(meta_len + 8);
 
-        let mut meta_frame_reader = {
-            reader.seek(std::io::SeekFrom::End(-40 - meta_off))?;
-            reader.take(meta_size)
-        };
+        let mut meta_frame_reader =
+            {
+                reader.seek(std::io::SeekFrom::End(-40 - meta_off))?;
+                reader.take(meta_size + 8)
+            };
         let meta_frame_read = std::io::copy(&mut meta_frame_reader, meta_frame)?;
         assert_eq!(meta_frame_read, u64::try_from(meta_frame.len())?);
-        println!("bytes [.. 10]: {:?}", &meta_frame[.. 10]);
-        println!("bytes [len - 10 ..]: {:?}", &meta_frame[meta_frame.len() - 10 ..]);
 
         // Verify the checksum of the meta frame.
         let actual_checksum = blake3::hash(meta_frame.as_slice());
         assert_eq!(actual_checksum.as_bytes(), expected_checksum);
+
+        meta_frame.resize(meta_len - 8, u8::default());
 
         // Extract the meta frame (zstd) content size.
         let meta_frame_content_size = zstd_safe::get_frame_content_size(meta_frame)
@@ -115,21 +114,17 @@ impl ChonkerArchiveMeta {
             compressor.multithread(n_workers)?;
             let mut buffer = compressed.as_zstd_write_buf();
             let size = compressor.compress_to_buffer(&metadata, &mut buffer)?;
-            println!("size: {size}");
             u64::try_from(size)?
         };
         let mut hasher = blake3::Hasher::new();
 
         writer.write_all(compressed.as_slice()).await?;
         hasher.update(compressed.as_slice());
-        println!("bytes [.. 10]: {:?}", &compressed[.. 10]);
-        println!("bytes [len - 10 ..]: {:?}", &compressed[compressed.len() - 10 ..]);
 
         writer.write_all(&size.to_le_bytes()).await?;
         hasher.update(&size.to_le_bytes());
 
         let checksum = hasher.finalize();
-        println!("checksum: {:?}", checksum.as_bytes());
         writer.write_all(checksum.as_bytes()).await?;
 
         Ok(())
