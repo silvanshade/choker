@@ -61,6 +61,7 @@ where
                 arc_offset,
                 arc_length,
             } => {
+                println!("chunk");
                 let arc_len = usize::try_from(u32::from(arc_length))?;
                 if arc_len > arc_data.len() {
                     arc_data.resize(arc_len, 0);
@@ -75,6 +76,7 @@ where
                 writer.write_all(&src_data[.. src_len])?;
             },
             rkyv::Archived::<ArchiveChunk>::Dupe { index } => {
+                println!("dupe");
                 let index = usize::try_from(u64::from(*index))?;
                 dupes.push(&meta.src_chunks[index]);
             },

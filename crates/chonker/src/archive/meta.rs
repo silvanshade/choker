@@ -44,21 +44,26 @@ impl ChonkerArchiveMeta {
     {
         // Read [-40 .. -32] to get the meta frame size.
         let meta_size = reader.read_u64_at::<byteorder::LittleEndian>(reader_size - 40)?;
+        println!("size: {meta_size}");
         let meta_len = usize::try_from(meta_size)?;
         let meta_off = i64::try_from(meta_size)?;
 
         // Read [-32 ..] to get the meta frame checksum.
         let expected_checksum = &mut [0u8; 32];
         reader.read_exact_at(reader_size - 32, expected_checksum)?;
+        println!("checksum: {expected_checksum:?}");
 
         // Read [-40 - meta .. -32] to get the meta frame.
-        let meta_frame = &mut Vec::with_capacity(meta_len);
+        let meta_frame = &mut rkyv::AlignedVec::with_capacity(meta_len);
+
         let mut meta_frame_reader = {
             reader.seek(std::io::SeekFrom::End(-40 - meta_off))?;
             reader.take(meta_size)
         };
         let meta_frame_read = std::io::copy(&mut meta_frame_reader, meta_frame)?;
-        assert_eq!(meta_frame_read, meta_size);
+        assert_eq!(meta_frame_read, u64::try_from(meta_frame.len())?);
+        println!("bytes [.. 10]: {:?}", &meta_frame[.. 10]);
+        println!("bytes [len - 10 ..]: {:?}", &meta_frame[meta_frame.len() - 10 ..]);
 
         // Verify the checksum of the meta frame.
         let actual_checksum = blake3::hash(meta_frame.as_slice());
@@ -94,11 +99,11 @@ impl ChonkerArchiveMeta {
     where
         W: tokio::io::AsyncWrite + Unpin,
     {
-        let mut hasher = blake3::Hasher::new();
-
         let metadata = rkyv::to_bytes::<Self, 0>(self)?;
+
         let mut compressed =
             rkyv::AlignedVec::with_capacity(std::cmp::max(64, metadata.len() + 16 - metadata.len() % 16));
+
         let size = {
             let n_workers = u32::try_from(usize::from(std::thread::available_parallelism()?))?;
             let mut compressor = zstd::bulk::Compressor::default();
@@ -110,19 +115,21 @@ impl ChonkerArchiveMeta {
             compressor.multithread(n_workers)?;
             let mut buffer = compressed.as_zstd_write_buf();
             let size = compressor.compress_to_buffer(&metadata, &mut buffer)?;
-            let size = u64::try_from(size)?;
-            let size = rkyv::rend::u64_le::from(size);
-            rkyv::to_bytes::<rkyv::rend::u64_le, 0>(&size)?
+            println!("size: {size}");
+            u64::try_from(size)?
         };
-        assert_eq!(size.len(), core::mem::size_of::<u64>());
+        let mut hasher = blake3::Hasher::new();
 
         writer.write_all(compressed.as_slice()).await?;
         hasher.update(compressed.as_slice());
+        println!("bytes [.. 10]: {:?}", &compressed[.. 10]);
+        println!("bytes [len - 10 ..]: {:?}", &compressed[compressed.len() - 10 ..]);
 
-        writer.write_all(size.as_slice()).await?;
-        hasher.update(size.as_slice());
+        writer.write_all(&size.to_le_bytes()).await?;
+        hasher.update(&size.to_le_bytes());
 
         let checksum = hasher.finalize();
+        println!("checksum: {:?}", checksum.as_bytes());
         writer.write_all(checksum.as_bytes()).await?;
 
         Ok(())
