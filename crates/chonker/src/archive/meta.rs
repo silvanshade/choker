@@ -51,6 +51,10 @@ impl ChonkerArchiveMeta {
         let expected_checksum = &mut [0u8; 32];
         reader.read_exact_at(reader_size - 32, expected_checksum)?;
 
+        // NOTE: We initially read the meta frame size as part of the frame data since this must be
+        // included in the checksum. After we verify the checksum, we truncate the meta frame to
+        // just the rkyv serialized bytes.
+        //
         // Read [-40 - meta .. -32] to get the meta frame.
         let meta_frame = &mut rkyv::AlignedVec::with_capacity(meta_len + 8);
 
@@ -66,7 +70,10 @@ impl ChonkerArchiveMeta {
         let actual_checksum = blake3::hash(meta_frame.as_slice());
         assert_eq!(actual_checksum.as_bytes(), expected_checksum);
 
-        meta_frame.resize(meta_len - 8, u8::default());
+        // NOTE: Now that we have verified the checksum, truncate the frame (dropping the size u64),
+        // leaving just the rkyv serialized bytes.
+        meta_frame.resize(meta_len, u8::default());
+        assert_eq!(meta_size, u64::try_from(meta_frame.len())?);
 
         // Extract the meta frame (zstd) content size.
         let meta_frame_content_size = zstd_safe::get_frame_content_size(meta_frame)
@@ -83,8 +90,8 @@ impl ChonkerArchiveMeta {
         assert_eq!(meta_bytes_read, meta_frame_content_size);
 
         // Zero-copy convert the meta bytes into the rkyv::Archived<ChonkerArchiveMeta>.
-        let meta = rkyv::check_archived_root::<ChonkerArchiveMeta>(&meta_bytes.as_slice()[.. meta_bytes.len() - 8])
-            .map_err(|err| err.to_string())?;
+        let meta =
+            rkyv::check_archived_root::<ChonkerArchiveMeta>(meta_bytes.as_slice()).map_err(|err| err.to_string())?;
 
         // // Prepare the reader for reading the archive source chunks.
         // let reader = meta_frame_reader.into_inner();
