@@ -64,7 +64,7 @@ impl ChonkerArchive {
             let header = ChonkerArchiveHeader::read(&context, reader)?;
             ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)
         })?;
-        crate::codec::decode::decode_chunks(context, meta, meta_size, reader, writer).await?;
+        crate::codec::decode::decode_chunks(context, meta, meta_size, reader, writer)?;
         Ok(meta)
     }
 }
