@@ -21,6 +21,7 @@ pub struct EncodeContext {
 
 pub struct EncodeContextProgress {
     pub multi_progress: MultiProgress,
+    pub progress_chunking: ProgressBar,
     pub progress_analyzing: ProgressBar,
     pub progress_deduping: ProgressBar,
     pub progress_archiving: ProgressBar,
@@ -74,9 +75,15 @@ impl EncodeContext {
         Ok(2 * estimated_count)
     }
 
-    fn progress_update(&self, src_data_size: u64, arc_data_size: u64, arc_dupe_size: u64) {
+    fn progress_update(
+        &self,
+        cdc_data_size: Option<u64>,
+        src_data_size: Option<u64>,
+        arc_data_size: Option<u64>,
+        arc_dupe_size: Option<u64>,
+    ) {
         if let Some(progress) = self.progress.as_ref() {
-            progress.update(src_data_size, arc_data_size, arc_dupe_size);
+            progress.update(cdc_data_size, src_data_size, arc_data_size, arc_dupe_size);
         }
     }
 
@@ -94,12 +101,19 @@ impl EncodeContextProgress {
         let progress_analyzing = multi_progress.add(ProgressBar::new(report_size));
         progress_analyzing.set_style(
             indicatif::ProgressStyle::default_bar()
-                .template("{prefix:>11.bold.dim}  {spinner:.green}{spinner:.yellow}{spinner:.red}  [{elapsed_precise:8}] [{wide_bar:.green}] {bytes:>10} / {total_bytes:>10}")?
+                .template("{prefix:>12.bold.dim}  {spinner:.green}{spinner:.yellow}{spinner:.red}  [{elapsed_precise:8}] [{wide_bar:.blue}] {bytes:>10} / {total_bytes:>10}")?
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
                 .progress_chars("#>-"),
         );
         progress_analyzing.enable_steady_tick(std::time::Duration::from_millis(100));
         progress_analyzing.set_prefix("analyzing 🔬");
+
+        let progress_chunking = multi_progress.add(ProgressBar::new(report_size));
+        progress_chunking.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("{prefix:>12.bold.dim}                  [{wide_bar:.green}] {bytes:>10}             ")?,
+        );
+        progress_chunking.set_prefix("chunking 🧱");
 
         let progress_deduping = multi_progress.add(ProgressBar::new(report_size));
         progress_deduping.set_style(indicatif::ProgressStyle::default_bar().template(
@@ -117,20 +131,37 @@ impl EncodeContextProgress {
 
         Ok(Self {
             multi_progress,
+            progress_chunking,
             progress_analyzing,
             progress_deduping,
             progress_archiving,
         })
     }
 
-    fn update(&self, src_data_size: u64, arc_data_size: u64, arc_dupe_size: u64) {
-        self.progress_analyzing.set_position(src_data_size);
-        self.progress_deduping.set_position(arc_dupe_size);
-        self.progress_archiving.set_position(arc_data_size);
+    fn update(
+        &self,
+        cdc_data_size: Option<u64>,
+        src_data_size: Option<u64>,
+        arc_data_size: Option<u64>,
+        arc_dupe_size: Option<u64>,
+    ) {
+        if let Some(cdc_data_size) = cdc_data_size {
+            self.progress_chunking.inc(cdc_data_size);
+        }
+        if let Some(src_data_size) = src_data_size {
+            self.progress_analyzing.set_position(src_data_size);
+        }
+        if let Some(arc_data_size) = arc_data_size {
+            self.progress_archiving.set_position(arc_data_size);
+        }
+        if let Some(arc_dupe_size) = arc_dupe_size {
+            self.progress_deduping.set_position(arc_dupe_size);
+        }
     }
 
     fn finish(&self) {
         self.progress_analyzing.finish();
+        self.progress_chunking.abandon();
         self.progress_deduping.abandon();
         self.progress_archiving.abandon();
     }
@@ -229,13 +260,11 @@ where
 
         for (ordinal, result) in chunker.enumerate() {
             let chunk = result?;
-            // NOTE: We could use `update_rayon` here, but since we're already maxing out the
-            // ThreadPool with other chunk processing jobs, it's actually less efficient due to
-            // resource contention.
+            context.progress_update(u64::try_from(chunk.data.len())?.into(), None, None, None);
             hasher.update(chunk.data.as_slice());
             let context = context.clone();
             let thread_local = thread_local.clone();
-            let chunks_tx = chunks_tx.clone();
+            let chunks_tx: tokio::sync::mpsc::UnboundedSender<(usize, EncodedChunkResult)> = chunks_tx.clone();
             let processed = processed.clone();
             scope.spawn(move |scope| {
                 process_one_chunk(context, thread_local, chunks_tx, processed, ordinal, chunk)(scope).unwrap();
@@ -321,7 +350,7 @@ where
                 arc_dupe_size += u64::from(*arc_length);
             },
         };
-        context.progress_update(src_data_size, arc_data_size, arc_dupe_size);
+        context.progress_update(None, src_data_size.into(), arc_data_size.into(), arc_dupe_size.into());
     }
 
     // Truncate the source chunks vec to the actual chunk count.
