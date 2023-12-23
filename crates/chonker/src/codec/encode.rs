@@ -1,5 +1,5 @@
 use dashmap::DashMap;
-use indicatif::MultiProgress;
+use indicatif::{MultiProgress, ProgressBar};
 use std::{cell::RefCell, sync::Arc};
 use thread_local::ThreadLocal;
 use tokio::io::AsyncWriteExt;
@@ -7,6 +7,7 @@ use tokio::io::AsyncWriteExt;
 use crate::{
     archive::{chunk::ArchiveChunk, meta::ChonkerArchiveMeta},
     cdc::AsyncStreamChunker,
+    BoxResult,
 };
 
 pub struct EncodeContext {
@@ -15,8 +16,49 @@ pub struct EncodeContext {
     pub cdc_max_chunk_size: u32,
     pub zstd_compression_level: i32,
     input_size: u64,
-    pub report_progress: bool,
-    pub multi_progress: Option<MultiProgress>,
+    pub progress: Option<EncodeContextProgress>,
+}
+
+pub struct EncodeContextProgress {
+    pub multi_progress: MultiProgress,
+    pub progress_analyzing: ProgressBar,
+    pub progress_deduping: ProgressBar,
+    pub progress_archiving: ProgressBar,
+}
+
+impl EncodeContextProgress {
+    pub fn new(report_size: u64) -> BoxResult<Self> {
+        let multi_progress = MultiProgress::new();
+
+        let progress_analyzing = multi_progress.add(ProgressBar::new(report_size));
+        progress_analyzing.set_style(
+            indicatif::ProgressStyle::default_bar()
+                .template("{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}")?
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                .progress_chars("#>-"),
+        );
+        progress_analyzing.enable_steady_tick(std::time::Duration::from_millis(125));
+        progress_analyzing.set_prefix("analyzing");
+
+        let progress_deduping = multi_progress.add(ProgressBar::new(report_size));
+        progress_deduping.set_style(indicatif::ProgressStyle::default_bar().template(
+            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
+        )?);
+        progress_deduping.set_prefix("deduping");
+
+        let progress_archiving = multi_progress.add(ProgressBar::new(report_size));
+        progress_archiving.set_style(indicatif::ProgressStyle::default_bar().template(
+            "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
+        )?);
+        progress_archiving.set_prefix("archiving");
+
+        Ok(Self {
+            multi_progress,
+            progress_analyzing,
+            progress_deduping,
+            progress_archiving,
+        })
+    }
 }
 
 // impl Default for EncodeContext {
@@ -41,23 +83,24 @@ impl EncodeContext {
     const ZSTD_INCLUDE_CHECKSUM: bool = false;
     const ZSTD_INCLUDE_DICTID: bool = false;
 
-    #[must_use]
-    pub fn new(input_size: u64) -> Self {
-        Self {
+    pub fn new(input_size: u64, report_progress: bool) -> BoxResult<Self> {
+        let progress =
+            if report_progress {
+                Some(EncodeContextProgress::new(input_size)?)
+            } else {
+                None
+            };
+        Ok(Self {
             cdc_min_chunk_size: Self::FASTCDC_MIN_CHUNK_SIZE,
             cdc_avg_chunk_size: Self::FASTCDC_AVG_CHUNK_SIZE,
             cdc_max_chunk_size: Self::FASTCDC_MAX_CHUNK_SIZE,
             zstd_compression_level: Self::ZSTD_COMPRESSION_LEVEL,
             input_size,
-            report_progress: false,
-            multi_progress: None,
-        }
+            progress,
+        })
     }
 
-    pub(crate) fn configure_zstd_bulk_compressor(
-        &self,
-        compressor: &mut zstd::bulk::Compressor,
-    ) -> crate::BoxResult<()> {
+    pub(crate) fn configure_zstd_bulk_compressor(&self, compressor: &mut zstd::bulk::Compressor) -> BoxResult<()> {
         compressor.set_compression_level(self.zstd_compression_level)?;
         compressor.include_checksum(Self::ZSTD_INCLUDE_CHECKSUM)?;
         compressor.include_dictid(Self::ZSTD_INCLUDE_DICTID)?;
@@ -81,7 +124,7 @@ impl EncodeContext {
         AsyncStreamChunker::new(self, source)
     }
 
-    fn estimated_chunk_count(&self, source_size: u64) -> crate::BoxResult<usize> {
+    fn estimated_chunk_count(&self, source_size: u64) -> BoxResult<usize> {
         let source_size = usize::try_from(source_size)?;
         let average = usize::try_from(self.cdc_avg_chunk_size)?;
         let estimated_count = source_size / average;
@@ -107,7 +150,7 @@ impl ThreadLocalState {
     fn new(
         context: &EncodeContext,
         chunks_tx: tokio::sync::mpsc::UnboundedSender<(usize, EncodedChunkResult)>,
-    ) -> crate::BoxResult<Self> {
+    ) -> BoxResult<Self> {
         let mut compressor = zstd::bulk::Compressor::default();
         context.configure_zstd_bulk_compressor(&mut compressor)?;
         Ok(Self { compressor, chunks_tx })
@@ -133,7 +176,7 @@ fn process_one_chunk(
     processed: Arc<DashMap<[u8; 32], usize>>,
     ordinal: usize,
     chunk: fastcdc::v2020::ChunkData,
-) -> impl FnOnce(&rayon::Scope) -> crate::BoxResult<()> {
+) -> impl FnOnce(&rayon::Scope) -> BoxResult<()> {
     move |_scope| {
         let state = thread_local.get_or(|| {
             let state = ThreadLocalState::new(&context, chunks_tx.clone()).unwrap();
@@ -175,7 +218,7 @@ fn process_all_chunks<R>(
     reader: R,
     thread_local: Arc<ThreadLocal<RefCell<ThreadLocalState>>>,
     chunks_tx: tokio::sync::mpsc::UnboundedSender<(usize, EncodedChunkResult)>,
-) -> impl FnOnce(&rayon::Scope) -> crate::BoxResult<blake3::Hash>
+) -> impl FnOnce(&rayon::Scope) -> BoxResult<blake3::Hash>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
@@ -214,7 +257,7 @@ pub(crate) async fn encode_chunks<R, W>(
     reader: R,
     reader_size: Option<u64>,
     writer: &mut W,
-) -> crate::BoxResult<ChonkerArchiveMeta>
+) -> BoxResult<ChonkerArchiveMeta>
 where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
     W: tokio::io::AsyncWrite + Unpin,
@@ -246,48 +289,48 @@ where
     // Allocate the source chunks vec with the estimated length to avoid reallocations.
     let mut src_chunks = vec![ArchiveChunk::default(); estimated_chunk_count];
 
-    let analyzing_bar = match (reader_size, context.multi_progress.as_ref()) {
-        (Some(size), Some(mp)) => {
-            let src_processed_bar = mp.add(indicatif::ProgressBar::new(size));
-            src_processed_bar.set_style(
-                indicatif::ProgressStyle::with_template(
-                    "{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}",
-                )?
-                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-                .progress_chars("#>-"),
-            );
-            src_processed_bar.enable_steady_tick(std::time::Duration::from_millis(125));
-            src_processed_bar.set_prefix("analyzing");
-            Some(src_processed_bar)
-        },
-        _ => None,
-    };
+    // let analyzing_bar = match (reader_size, context.multi_progress.as_ref()) {
+    //     (Some(size), Some(mp)) => {
+    //         let src_processed_bar = mp.add(ProgressBar::new(size));
+    //         src_processed_bar.set_style(
+    //             indicatif::ProgressStyle::with_template(
+    //                 "{prefix:>10.bold.dim} {spinner:.green}{spinner:.yellow}{spinner:.red}{spinner:.magenta} [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}",
+    //             )?
+    //             .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+    //             .progress_chars("#>-"),
+    //         );
+    //         src_processed_bar.enable_steady_tick(std::time::Duration::from_millis(125));
+    //         src_processed_bar.set_prefix("analyzing");
+    //         Some(src_processed_bar)
+    //     },
+    //     _ => None,
+    // };
 
-    let deduping_bar =
-        match (reader_size, context.multi_progress.as_ref()) {
-            (Some(size), Some(mp)) => {
-                let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
-                arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-                "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
-            )?);
-                arc_size_bar.set_prefix("deduping");
-                Some(arc_size_bar)
-            },
-            _ => None,
-        };
+    // let deduping_bar =
+    //     match (reader_size, context.multi_progress.as_ref()) {
+    //         (Some(size), Some(mp)) => {
+    //             let arc_size_bar = mp.add(ProgressBar::new(size));
+    //             arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
+    //             "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.yellow/black}] {bytes:>10}             ",
+    //         )?);
+    //             arc_size_bar.set_prefix("deduping");
+    //             Some(arc_size_bar)
+    //         },
+    //         _ => None,
+    //     };
 
-    let archiving_bar =
-        match (reader_size, context.multi_progress.as_ref()) {
-            (Some(size), Some(mp)) => {
-                let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
-                arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-                    "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
-                )?);
-                arc_size_bar.set_prefix("archiving");
-                Some(arc_size_bar)
-            },
-            _ => None,
-        };
+    // let archiving_bar =
+    //     match (reader_size, context.multi_progress.as_ref()) {
+    //         (Some(size), Some(mp)) => {
+    //             let arc_size_bar = mp.add(ProgressBar::new(size));
+    //             arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
+    //                 "{prefix:>10.bold.dim} {percent:>3}% (of input) [{wide_bar:.red/black}] {bytes:>10}             ",
+    //             )?);
+    //             arc_size_bar.set_prefix("archiving");
+    //             Some(arc_size_bar)
+    //         },
+    //         _ => None,
+    //     };
 
     // Process the encoded chunks as they arrive from the worker threads.
     while let Some((ordinal, result)) = encoded_chunks_rx.recv().await {
@@ -311,9 +354,9 @@ where
                 };
                 writer.write_all(compressed.as_slice()).await?;
                 arc_pos += u64::try_from(compressed.len())?;
-                if let Some(pb) = archiving_bar.as_ref() {
-                    pb.inc(u64::try_from(compressed.len())?);
-                }
+                // if let Some(pb) = archiving_bar.as_ref() {
+                //     pb.inc(u64::try_from(compressed.len())?);
+                // }
                 src_length
             },
             EncodedChunkResult::Dupe { index } => {
@@ -324,31 +367,31 @@ where
                 else {
                     return Err("invalid dupe index".into());
                 };
-                if let Some(pb) = deduping_bar.as_ref() {
-                    pb.inc(u64::try_from(*arc_length)?);
-                }
+                // if let Some(pb) = deduping_bar.as_ref() {
+                //     pb.inc(u64::try_from(*arc_length)?);
+                // }
                 *src_length
             },
         };
         let src_pos_delta = u64::from(src_pos_delta);
         src_pos += src_pos_delta;
-        if let Some(pb) = analyzing_bar.as_ref() {
-            pb.inc(src_pos_delta);
-        }
+        // if let Some(pb) = analyzing_bar.as_ref() {
+        //     pb.inc(src_pos_delta);
+        // }
     }
 
     // Truncate the source chunks vec to the actual chunk count.
     src_chunks.truncate(actual_chunk_count);
 
-    if let Some(pb) = analyzing_bar.as_ref() {
-        pb.finish();
-    }
-    if let Some(pb) = archiving_bar.as_ref() {
-        pb.abandon();
-    }
-    if let Some(pb) = deduping_bar.as_ref() {
-        pb.abandon();
-    }
+    // if let Some(pb) = analyzing_bar.as_ref() {
+    //     pb.finish();
+    // }
+    // if let Some(pb) = archiving_bar.as_ref() {
+    //     pb.abandon();
+    // }
+    // if let Some(pb) = deduping_bar.as_ref() {
+    //     pb.abandon();
+    // }
 
     Ok(ChonkerArchiveMeta {
         src_checksum: src_checksum.await??.into(),
