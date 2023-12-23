@@ -112,7 +112,7 @@ impl EncodeContextProgress {
         let progress_analyzing = multi_progress.add(ProgressBar::new(report_size));
         progress_analyzing.set_style(
             indicatif::ProgressStyle::default_bar()
-                .template("{prefix:>11.bold.dim}  {spinner:.green}{spinner:.yellow}{spinner:.red}  [{elapsed_precise:8}] [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}")?
+                .template("{prefix:>11.bold.dim}  {spinner:.green}{spinner:.yellow}{spinner:.red}  [{elapsed_precise:8}] [{wide_bar:.green}] {bytes:>10} / {total_bytes:>10}")?
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
                 .progress_chars("#>-"),
         );
@@ -121,14 +121,16 @@ impl EncodeContextProgress {
 
         let progress_deduping = multi_progress.add(ProgressBar::new(report_size));
         progress_deduping.set_style(indicatif::ProgressStyle::default_bar().template(
-            "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.yellow/black}] {bytes:>10} (dupe bytes)",
+            "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.yellow}] {bytes:>10} (dupe bytes)",
         )?);
         progress_deduping.set_prefix("deduping ♻️");
 
         let progress_archiving = multi_progress.add(ProgressBar::new(report_size));
-        progress_archiving.set_style(indicatif::ProgressStyle::default_bar().template(
-            "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.red/black}] {bytes:>10} (file bytes)",
-        )?);
+        progress_archiving.set_style(
+            indicatif::ProgressStyle::default_bar().template(
+                "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.red}] {bytes:>10} (file bytes)",
+            )?,
+        );
         progress_archiving.set_prefix("archiving 🗄️");
 
         Ok(Self {
