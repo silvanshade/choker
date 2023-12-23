@@ -110,7 +110,7 @@ impl EncodeContextProgress {
         let progress_archiving = multi_progress.add(ProgressBar::new(report_size));
         progress_archiving.set_style(
             indicatif::ProgressStyle::default_bar().template(
-                "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.red}] {bytes:>10} (file bytes)",
+                "{prefix:>11.bold.dim} {percent:>5}% (of input) [{wide_bar:.red}] {bytes:>10} (data bytes)",
             )?,
         );
         progress_archiving.set_prefix("archiving 🗄️");
