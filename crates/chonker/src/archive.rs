@@ -49,7 +49,7 @@ impl ChonkerArchive {
     }
 
     #[allow(clippy::unused_async)]
-    pub async fn decode<'meta, R, W>(
+    pub fn decode<'meta, R, W>(
         mut context: DecodeContext,
         meta_frame: &'meta mut rkyv::AlignedVec,
         reader: &mut R,
@@ -60,10 +60,8 @@ impl ChonkerArchive {
         R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin + Send,
         W: tokio::io::AsyncWrite + Unpin,
     {
-        let (reader, meta, meta_size) = tokio::task::block_in_place(|| -> crate::BoxResult<_> {
-            let header = ChonkerArchiveHeader::read(&context, reader)?;
-            ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)
-        })?;
+        ChonkerArchiveHeader::read(&context, reader)?;
+        let (reader, meta, meta_size) = ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)?;
         crate::codec::decode::decode_chunks(context, meta, meta_size, reader, writer)?;
         Ok(meta)
     }
