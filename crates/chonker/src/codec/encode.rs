@@ -14,20 +14,23 @@ pub struct EncodeContext {
     pub cdc_avg_chunk_size: u32,
     pub cdc_max_chunk_size: u32,
     pub zstd_compression_level: i32,
+    input_size: u64,
+    pub report_progress: bool,
     pub multi_progress: Option<MultiProgress>,
 }
 
-impl Default for EncodeContext {
-    fn default() -> Self {
-        Self {
-            cdc_min_chunk_size: Self::FASTCDC_MIN_CHUNK_SIZE,
-            cdc_avg_chunk_size: Self::FASTCDC_AVG_CHUNK_SIZE,
-            cdc_max_chunk_size: Self::FASTCDC_MAX_CHUNK_SIZE,
-            zstd_compression_level: Self::ZSTD_COMPRESSION_LEVEL,
-            multi_progress: None,
-        }
-    }
-}
+// impl Default for EncodeContext {
+//     fn default() -> Self {
+//         Self {
+//             cdc_min_chunk_size: Self::FASTCDC_MIN_CHUNK_SIZE,
+//             cdc_avg_chunk_size: Self::FASTCDC_AVG_CHUNK_SIZE,
+//             cdc_max_chunk_size: Self::FASTCDC_MAX_CHUNK_SIZE,
+//             zstd_compression_level: Self::ZSTD_COMPRESSION_LEVEL,
+//             report_progress: false,
+//             multi_progress: None,
+//         }
+//     }
+// }
 
 impl EncodeContext {
     const FASTCDC_MIN_CHUNK_SIZE: u32 = 1024;
@@ -37,6 +40,19 @@ impl EncodeContext {
     const ZSTD_COMPRESSION_LEVEL: i32 = 15;
     const ZSTD_INCLUDE_CHECKSUM: bool = false;
     const ZSTD_INCLUDE_DICTID: bool = false;
+
+    #[must_use]
+    pub fn new(input_size: u64) -> Self {
+        Self {
+            cdc_min_chunk_size: Self::FASTCDC_MIN_CHUNK_SIZE,
+            cdc_avg_chunk_size: Self::FASTCDC_AVG_CHUNK_SIZE,
+            cdc_max_chunk_size: Self::FASTCDC_MAX_CHUNK_SIZE,
+            zstd_compression_level: Self::ZSTD_COMPRESSION_LEVEL,
+            input_size,
+            report_progress: false,
+            multi_progress: None,
+        }
+    }
 
     pub(crate) fn configure_zstd_bulk_compressor(
         &self,
@@ -72,6 +88,14 @@ impl EncodeContext {
         // NOTE: better to overallocate and truncate than to underallocate and reallocate
         Ok(2 * estimated_count)
     }
+
+    // fn update_init_progress(&self) -> crate::BoxResult<()> {
+    //     Ok(())
+    // }
+
+    // fn update_progress(&self) -> crate::BoxResult<()> {
+    //     Ok(())
+    // }
 }
 
 struct ThreadLocalState {

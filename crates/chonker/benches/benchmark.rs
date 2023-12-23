@@ -14,14 +14,14 @@ pub fn create(c: &mut Criterion) {
             let reader = std::io::Cursor::new(reader);
             async move {
                 let mut writer = tokio::io::sink();
-                let reader_size = u64::try_from(reader_size).unwrap().into();
+                let reader_size = u64::try_from(reader_size).unwrap();
                 let mut total_time = std::time::Duration::default();
-                let context = Arc::<EncodeContext>::default();
+                let context = Arc::new(EncodeContext::new(reader_size));
                 for _i in 0 .. iters {
                     let context = context.clone();
                     let reader = reader.clone();
                     let start = std::time::Instant::now();
-                    chonker::ChonkerArchive::encode(context, reader, reader_size, &mut writer)
+                    chonker::ChonkerArchive::encode(context, reader, reader_size.into(), &mut writer)
                         .await
                         .unwrap();
                     total_time += start.elapsed();
