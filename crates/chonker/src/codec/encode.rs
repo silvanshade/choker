@@ -55,8 +55,8 @@ impl EncodeContext {
 
     pub(crate) fn configure_zstd_bulk_compressor(&self, compressor: &mut zstd::bulk::Compressor) -> BoxResult<()> {
         compressor.set_compression_level(self.zstd_compression_level)?;
-        compressor.include_checksum(Self::ZSTD_INCLUDE_CHECKSUM)?;
-        compressor.include_dictid(Self::ZSTD_INCLUDE_DICTID)?;
+        // compressor.include_checksum(Self::ZSTD_INCLUDE_CHECKSUM)?;
+        // compressor.include_dictid(Self::ZSTD_INCLUDE_DICTID)?;
         Ok(())
     }
 
@@ -327,16 +327,18 @@ where
                 src_offset,
                 compressed,
             } => {
+                let arc_offset = arc_data_size;
+                let arc_length = u32::try_from(compressed.len())?;
                 src_chunks[ordinal] = ArchiveChunk::Data {
                     checksum,
                     src_offset,
                     src_length,
-                    arc_offset: arc_data_size,
-                    arc_length: u32::try_from(compressed.len())?,
+                    arc_offset,
+                    arc_length,
                 };
                 writer.write_all(compressed.as_slice()).await?;
                 src_data_size += u64::from(src_length);
-                arc_data_size += u64::try_from(compressed.len())?;
+                arc_data_size += u64::from(arc_length);
             },
             EncodedChunkResult::Dupe { index } => {
                 src_chunks[ordinal] = ArchiveChunk::Dupe { index };

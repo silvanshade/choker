@@ -61,7 +61,7 @@ where
                 arc_offset,
                 arc_length,
             } => {
-                println!("chunk");
+                println!("chunk: {chunk:#?}");
                 let arc_len = usize::try_from(u32::from(arc_length))?;
                 if arc_len > arc_data.len() {
                     arc_data.resize(arc_len, 0);
