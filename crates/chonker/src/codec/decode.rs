@@ -44,6 +44,8 @@ where
     R: positioned_io::ReadAt + std::io::Read + std::io::Seek,
     W: std::io::Write,
 {
+    let header_offset = 32;
+
     let mut decompressor = zstd::bulk::Decompressor::new()?;
     let mut src_data = Vec::new();
     let mut arc_data = Vec::new();
@@ -65,7 +67,7 @@ where
                 if arc_len > arc_data.len() {
                     arc_data.resize(arc_len, 0);
                 }
-                reader.read_exact_at(u64::from(arc_offset), &mut arc_data[.. arc_len])?;
+                reader.read_exact_at(header_offset + u64::from(arc_offset), &mut arc_data[.. arc_len])?;
 
                 let src_len = usize::try_from(u32::from(src_length))?;
                 if src_len > src_data.len() {
