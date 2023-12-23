@@ -226,33 +226,39 @@ where
     let src_processed_bar = match (reader_size, context.multi_progress.as_ref()) {
         (Some(size), Some(mp)) => {
             let src_processed_bar = mp.add(indicatif::ProgressBar::new(size));
-            src_processed_bar.set_style(indicatif::ProgressStyle::with_template(
-                "{prefix:>11.bold.dim} {spinner:.green} {elapsed_precise:8} [{wide_bar:.green/black}] {bytes:>10}/{total_bytes}",
-            )?.progress_chars("#>-"));
+            src_processed_bar.set_style(
+                indicatif::ProgressStyle::with_template(
+                    "{prefix:>11.bold.dim} {spinner:.green} {elapsed_precise:8} [{wide_bar:.green/black}] {bytes:>10} / {total_bytes:>10}",
+                )?
+                .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+                .progress_chars("#>-")
+            );
             src_processed_bar.set_prefix("encoding");
+            src_processed_bar.enable_steady_tick(std::time::Duration::from_millis(125));
             Some(src_processed_bar)
         },
         _ => None,
     };
 
-    let arc_size_bar = match (reader_size, context.multi_progress.as_ref()) {
-        (Some(size), Some(mp)) => {
-            let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
-            arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-                "{prefix:>11.bold.dim}   {percent:>7}% [{wide_bar:.red/black}] {bytes:>10}/{total_bytes}",
-            )?);
-            arc_size_bar.set_prefix("compression");
-            Some(arc_size_bar)
-        },
-        _ => None,
-    };
+    let arc_size_bar =
+        match (reader_size, context.multi_progress.as_ref()) {
+            (Some(size), Some(mp)) => {
+                let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
+                arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
+                    "{prefix:>11.bold.dim}   {percent:>7}% [{wide_bar:.red/black}] {bytes:>10}             ",
+                )?);
+                arc_size_bar.set_prefix("archiving");
+                Some(arc_size_bar)
+            },
+            _ => None,
+        };
 
     let dupe_size_bar =
         match (reader_size, context.multi_progress.as_ref()) {
             (Some(size), Some(mp)) => {
                 let arc_size_bar = mp.add(indicatif::ProgressBar::new(size));
                 arc_size_bar.set_style(indicatif::ProgressStyle::with_template(
-                    "{prefix:>11.bold.dim}   {percent:>7}% [{wide_bar:.yellow/black}] {bytes:>10}/{total_bytes}",
+                    "{prefix:>11.bold.dim}   {percent:>7}% [{wide_bar:.yellow/black}] {bytes:>10}             ",
                 )?);
                 arc_size_bar.set_prefix("duplication");
                 Some(arc_size_bar)
