@@ -28,7 +28,7 @@ async fn main() -> BoxResult<()> {
                 crate::command::encode(std::path::Path::new(&path)).await?;
             },
             Commands::Decode { path } => {
-                crate::command::decode(std::path::Path::new(&path))?;
+                crate::command::decode(std::path::Path::new(&path)).await?;
             },
             Commands::Import => {},
             Commands::Export => {},

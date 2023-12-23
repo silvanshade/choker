@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use positioned_io::ReadAt;
 use std::io::prelude::Write;
 
@@ -33,7 +34,7 @@ impl DecodeContext {
 }
 
 #[allow(clippy::needless_pass_by_value, clippy::unused_async)]
-pub(crate) fn decode_chunks<R, W>(
+pub(crate) async fn decode_chunks<R, W>(
     context: DecodeContext,
     meta: &rkyv::Archived<ChonkerArchiveMeta>,
     meta_size: u64,
@@ -52,7 +53,15 @@ where
     let mut chunks = meta.src_chunks.iter();
     let mut dupes: Vec<&rkyv::Archived<ArchiveChunk>> = vec![];
 
-    let mut hasher = blake3::Hasher::new();
+    let (tx_hasher_update, mut rx_hasher_update) = tokio::sync::mpsc::unbounded_channel::<Bytes>();
+
+    let hasher = tokio::task::spawn(async move {
+        let mut hasher = blake3::Hasher::new();
+        while let Some(data) = rx_hasher_update.recv().await {
+            hasher.update(&data);
+        }
+        hasher.finalize()
+    });
 
     while let Some(chunk) = dupes.pop().or_else(|| chunks.next()) {
         match chunk {
@@ -76,7 +85,7 @@ where
                 decompressor.decompress_to_buffer(&arc_data[.. arc_len], &mut src_data[.. src_len])?;
 
                 assert_eq!(checksum, blake3::hash(&src_data[.. src_len]).as_bytes());
-                hasher.update(&src_data[.. src_len]);
+                tx_hasher_update.send(Bytes::copy_from_slice(&src_data[.. src_len]))?;
 
                 writer.write_all(&src_data[.. src_len])?;
             },
@@ -86,8 +95,9 @@ where
             },
         }
     }
+    drop(tx_hasher_update);
 
-    assert_eq!(&meta.src_checksum, hasher.finalize().as_bytes());
+    assert_eq!(&meta.src_checksum, hasher.await?.as_bytes());
 
     Ok(())
 }

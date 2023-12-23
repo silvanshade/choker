@@ -254,6 +254,7 @@ dependencies = [
  "async-stream",
  "blake3",
  "byteorder",
+ "bytes",
  "criterion",
  "dashmap",
  "fastcdc",

@@ -8,6 +8,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite};
 use crate::{
     archive::{header::ChonkerArchiveHeader, meta::ChonkerArchiveMeta},
     codec::{decode::DecodeContext, encode::EncodeContext},
+    BoxResult,
 };
 
 pub struct ChonkerArchive;
@@ -49,7 +50,7 @@ impl ChonkerArchive {
     }
 
     #[allow(clippy::unused_async)]
-    pub fn decode<'meta, R, W>(
+    pub async fn decode<'meta, R, W>(
         mut context: DecodeContext,
         meta_frame: &'meta mut rkyv::AlignedVec,
         reader: &mut R,
@@ -60,9 +61,11 @@ impl ChonkerArchive {
         R: positioned_io::ReadAt + std::io::Read + std::io::Seek + Unpin + Send,
         W: std::io::Write,
     {
-        ChonkerArchiveHeader::read(&context, reader)?;
-        let (reader, meta, meta_size) = ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)?;
-        crate::codec::decode::decode_chunks(context, meta, meta_size, reader, writer)?;
+        let (reader, meta, meta_size) = tokio::task::block_in_place(|| -> BoxResult<_> {
+            ChonkerArchiveHeader::read(&context, reader)?;
+            ChonkerArchiveMeta::read(&mut context, meta_frame, reader, reader_size)
+        })?;
+        crate::codec::decode::decode_chunks(context, meta, meta_size, reader, writer).await?;
         Ok(meta)
     }
 }

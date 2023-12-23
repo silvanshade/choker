@@ -13,7 +13,7 @@
       },
       "args": [
         "encode",
-        "/Users/silvanshade/Development/chonker-assets/source.tar"
+        "/Users/silvanshade/Development/chonker-assets/xcode.tar"
       ],
       "cwd": "${workspaceFolder}"
     },
@@ -26,7 +26,7 @@
       },
       "args": [
         "decode",
-        "/Users/silvanshade/Development/chonker-assets/source.tar.chonk"
+        "/Users/silvanshade/Development/chonker-assets/xcode.tar.chonk"
       ],
       "cwd": "${workspaceFolder}"
     }
